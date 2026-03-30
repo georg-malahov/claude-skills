@@ -1,0 +1,9 @@
+{
+  "name": "claude-skills",
+  "description": "A collection of Claude Code skills for video processing, transcription, and more.",
+  "author": {
+    "name": "Georg Malahov",
+    "email": "georg@malahov.io"
+  },
+  "version": "1.0.0"
+}

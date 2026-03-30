@@ -1,0 +1,9 @@
+# Deepgram API tokens (user-specific, never commit)
+**/deepgram_token
+
+# OS files
+.DS_Store
+
+# Editor files
+*.swp
+*~

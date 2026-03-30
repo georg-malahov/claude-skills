@@ -1,0 +1,9 @@
+{
+  "name": "process-video",
+  "description": "Process videos: optimize for web, transcribe with Deepgram Nova 3, add/translate subtitles, burn into video.",
+  "author": {
+    "name": "Georg Malahov",
+    "email": "georg@malahov.io"
+  },
+  "version": "1.0.0"
+}
