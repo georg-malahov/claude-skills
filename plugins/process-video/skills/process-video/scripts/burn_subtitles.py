@@ -32,6 +32,19 @@ import select
 import fcntl
 
 
+def get_ffmpeg_major_version():
+    """Detect installed ffmpeg major version (e.g., 7 or 8). Returns None if not found."""
+    try:
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+        first_line = result.stdout.split("\n")[0]
+        match = re.search(r"ffmpeg version (\d+)", first_line)
+        if match:
+            return int(match.group(1))
+    except FileNotFoundError:
+        pass
+    return None
+
+
 def get_video_duration(video_path):
     """Get video duration in seconds using ffprobe."""
     cmd = [
@@ -47,14 +60,17 @@ def get_video_duration(video_path):
 
 
 def escape_path_for_subtitles(path):
-    """Escape special characters in file path for ffmpeg subtitle filter."""
-    # For the subtitles filter, we need to escape colons, backslashes, and single quotes
+    """Escape special characters in file path for ffmpeg subtitle filter.
+
+    Handles colons, backslashes, quotes, brackets, and spaces for the
+    libass subtitle filter's own parser (separate from shell escaping).
+    """
     path = path.replace("\\", "\\\\\\\\")
     path = path.replace(":", "\\\\:")
     path = path.replace("'", "'\\''")
-    # Also escape brackets and other special chars
     path = path.replace("[", "\\[")
     path = path.replace("]", "\\]")
+    path = path.replace(" ", "\\ ")
     return path
 
 
@@ -76,6 +92,15 @@ def build_style_override(args):
 
 def burn_subtitles(video_path, srt_path, output_path, args, second_srt=None):
     """Burn subtitles into video with progress reporting."""
+    ffmpeg_ver = get_ffmpeg_major_version()
+    if ffmpeg_ver is None:
+        print("Error: ffmpeg not found or version could not be detected.", file=sys.stderr)
+        print("Install ffmpeg (e.g., brew install ffmpeg) and try again.", file=sys.stderr)
+        sys.exit(1)
+
+    # ffmpeg 8.x requires explicit filename= key in subtitle filter
+    use_filename_key = ffmpeg_ver >= 8
+
     duration = get_video_duration(video_path)
     if not duration:
         print("Warning: Could not determine video duration", flush=True)
@@ -84,8 +109,11 @@ def burn_subtitles(video_path, srt_path, output_path, args, second_srt=None):
     escaped_srt = escape_path_for_subtitles(os.path.abspath(srt_path))
     style = build_style_override(args)
 
-    # Build filter
-    filter_parts = [f"subtitles='{escaped_srt}':force_style='{style}'"]
+    # Build filter — adapt syntax for ffmpeg version
+    if use_filename_key:
+        filter_parts = [f"subtitles=filename='{escaped_srt}':force_style='{style}'"]
+    else:
+        filter_parts = [f"subtitles='{escaped_srt}':force_style='{style}'"]
 
     if second_srt:
         escaped_second = escape_path_for_subtitles(os.path.abspath(second_srt))
@@ -101,7 +129,10 @@ def burn_subtitles(video_path, srt_path, output_path, args, second_srt=None):
             f"MarginV={args.margin_v}",
         ]
         second_style = ",".join(second_style_parts)
-        filter_parts.append(f"subtitles='{escaped_second}':force_style='{second_style}'")
+        if use_filename_key:
+            filter_parts.append(f"subtitles=filename='{escaped_second}':force_style='{second_style}'")
+        else:
+            filter_parts.append(f"subtitles='{escaped_second}':force_style='{second_style}'")
 
     vf = ",".join(filter_parts)
 
