@@ -1,9 +1,12 @@
 {
   "name": "process-video",
+  "version": "1.0.0",
   "description": "Process videos: optimize for web, transcribe with Deepgram Nova 3, add/translate subtitles, burn into video.",
   "author": {
     "name": "Georg Malahov",
     "email": "georg@malahov.io"
   },
-  "version": "1.0.0"
+  "repository": "https://github.com/georg-malahov/claude-skills",
+  "license": "MIT",
+  "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram"]
 }

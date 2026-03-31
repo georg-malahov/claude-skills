@@ -1,20 +1,24 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "georg-malahov-claude-skills",
-  "description": "Claude Code skills for video processing, transcription, subtitles, and optimization.",
   "owner": {
     "name": "Georg Malahov",
     "email": "georg@malahov.io"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for video processing, transcription, subtitles, and optimization."
   },
   "plugins": [
     {
       "name": "process-video",
       "description": "Process videos: optimize for web, transcribe audio with Deepgram Nova 3, add subtitles in any language, translate, and burn into video with customizable styles.",
+      "source": "./plugins/process-video",
+      "version": "1.0.0",
+      "author": {
+        "name": "Georg Malahov",
+        "email": "georg@malahov.io"
+      },
       "category": "productivity",
-      "source": {
-        "source": "git-subdir",
-        "path": "./plugins/process-video"
-      }
+      "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram"]
     }
   ]
 }
