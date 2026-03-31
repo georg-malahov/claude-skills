@@ -15,7 +15,7 @@ Add the marketplace and install the plugin you need:
 
 | Plugin | Description |
 |--------|-------------|
-| [process-video](plugins/process-video/) | Optimize videos for web, transcribe audio, add/translate subtitles, burn into video |
+| [process-video](plugins/process-video/) | Process and share videos: optimize, transcribe, subtitles, and share via tunnel with `/video` command |
 
 ## Adding New Plugins
 

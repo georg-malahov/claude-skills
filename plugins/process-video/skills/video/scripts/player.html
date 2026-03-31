@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0f0f0f; color: #e8e8e8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+.player-wrap { position: relative; width: 100%; background: #000; border-radius: 8px; overflow: hidden; }
+video { width: 100%; display: block; }
+.meta { padding: 20px 0; }
+.title { font-size: 1.4rem; font-weight: 600; margin-bottom: 8px; }
+.description { color: #aaa; font-size: 0.95rem; margin-bottom: 20px; }
+.chapters { border-top: 1px solid #2a2a2a; padding-top: 16px; }
+.chapters h3 { font-size: 0.9rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+.chapter { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
+.chapter:hover { background: #1a1a1a; }
+.chapter.active { background: #1e2a1e; }
+.chapter-time { font-size: 0.85rem; color: #5c9aff; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 48px; }
+.chapter-label { font-size: 0.9rem; }
+.passcode-overlay { position: fixed; inset: 0; background: #0f0f0f; display: flex; align-items: center; justify-content: center; z-index: 100; }
+.passcode-box { text-align: center; max-width: 360px; padding: 40px; }
+.passcode-box h2 { margin-bottom: 8px; font-size: 1.2rem; }
+.passcode-box p { color: #888; font-size: 0.9rem; margin-bottom: 24px; }
+.passcode-input { width: 100%; padding: 12px 16px; font-size: 1rem; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #e8e8e8; text-align: center; letter-spacing: 0.15em; outline: none; }
+.passcode-input:focus { border-color: #5c9aff; }
+.passcode-input.error { border-color: #ff4444; animation: shake 0.3s; }
+@keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+.passcode-btn { margin-top: 16px; padding: 10px 32px; background: #5c9aff; color: #fff; border: none; border-radius: 6px; font-size: 0.95rem; cursor: pointer; }
+.passcode-btn:hover { background: #4a88ee; }
+.downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+.download-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; color: #e8e8e8; text-decoration: none; font-size: 0.85rem; transition: background 0.15s, border-color 0.15s; }
+.download-btn:hover { background: #252525; border-color: #5c9aff; }
+.download-btn svg { width: 16px; height: 16px; fill: currentColor; }
+.download-original { color: #888; border-color: #2a2a2a; }
+.download-original:hover { color: #e8e8e8; }
+@media (max-width: 640px) { .container { padding: 12px 8px; } .title { font-size: 1.1rem; } }
+</style>
+</head>
+<body>
+
+<!-- Passcode gate (only rendered if PASSCODE_HASH is set) -->
+<div class="passcode-overlay" id="passcodeOverlay" style="display:none">
+  <div class="passcode-box">
+    <h2>This video is protected</h2>
+    <p>Enter the passcode to view</p>
+    <input type="password" class="passcode-input" id="passcodeInput" placeholder="Passcode" autocomplete="off">
+    <br>
+    <button class="passcode-btn" id="passcodeBtn">View</button>
+  </div>
+</div>
+
+<div class="container" id="mainContent" style="display:none">
+  <div class="player-wrap">
+    <video id="videoPlayer" controls preload="metadata">
+      <source src="{{VIDEO_FILENAME}}" type="video/mp4">
+      {{SUBTITLE_TRACKS}}
+    </video>
+  </div>
+  <div class="meta">
+    <div class="title">{{TITLE}}</div>
+    <div class="description">{{DESCRIPTION}}</div>
+    <div class="downloads">{{DOWNLOAD_BUTTON}}{{ORIGINAL_DOWNLOAD}}</div>
+    <div class="chapters" id="chaptersSection" style="display:none">
+      <h3>Chapters</h3>
+      <div id="chaptersList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var PASSCODE_HASH = "{{PASSCODE_HASH}}";
+  var CHAPTERS = {{CHAPTERS_JSON}};
+
+  // Simple hash for passcode comparison (not cryptographic — client-side only)
+  function simpleHash(str) {
+    var hash = 0;
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + c;
+      hash |= 0;
+    }
+    return String(hash);
+  }
+
+  // Passcode gate
+  var overlay = document.getElementById("passcodeOverlay");
+  var content = document.getElementById("mainContent");
+
+  if (PASSCODE_HASH && PASSCODE_HASH !== "") {
+    overlay.style.display = "flex";
+    content.style.display = "none";
+
+    var input = document.getElementById("passcodeInput");
+    var btn = document.getElementById("passcodeBtn");
+
+    function checkPasscode() {
+      if (simpleHash(input.value) === PASSCODE_HASH) {
+        overlay.style.display = "none";
+        content.style.display = "block";
+      } else {
+        input.classList.add("error");
+        setTimeout(function() { input.classList.remove("error"); }, 400);
+      }
+    }
+
+    btn.addEventListener("click", checkPasscode);
+    input.addEventListener("keydown", function(e) { if (e.key === "Enter") checkPasscode(); });
+    input.focus();
+  } else {
+    overlay.style.display = "none";
+    content.style.display = "block";
+  }
+
+  // Chapters
+  var video = document.getElementById("videoPlayer");
+  var chaptersSection = document.getElementById("chaptersSection");
+  var chaptersList = document.getElementById("chaptersList");
+
+  if (CHAPTERS && CHAPTERS.length > 0) {
+    chaptersSection.style.display = "block";
+
+    CHAPTERS.forEach(function(ch, idx) {
+      var el = document.createElement("div");
+      el.className = "chapter";
+      el.dataset.time = ch.time;
+      el.innerHTML = '<span class="chapter-time">' + formatTime(ch.time) + '</span><span class="chapter-label">' + escapeHtml(ch.label) + '</span>';
+      el.addEventListener("click", function() {
+        video.currentTime = ch.time;
+        video.play();
+      });
+      chaptersList.appendChild(el);
+    });
+
+    video.addEventListener("timeupdate", function() {
+      var t = video.currentTime;
+      var items = chaptersList.querySelectorAll(".chapter");
+      var activeIdx = 0;
+      for (var i = CHAPTERS.length - 1; i >= 0; i--) {
+        if (t >= CHAPTERS[i].time) { activeIdx = i; break; }
+      }
+      items.forEach(function(el, idx) {
+        el.classList.toggle("active", idx === activeIdx);
+      });
+    });
+  }
+
+  function formatTime(secs) {
+    var m = Math.floor(secs / 60);
+    var s = Math.floor(secs % 60);
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function escapeHtml(str) {
+    var d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  }
+})();
+</script>
+</body>
+</html>

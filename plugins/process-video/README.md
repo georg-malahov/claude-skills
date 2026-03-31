@@ -1,16 +1,23 @@
 # process-video
 
-Process videos with optimization, subtitles, transcription, and translation.
+Process and share videos with a unified `/video` command.
 
 ## Features
 
+**Processing:**
 - Optimize videos for web (downscale, compress, faststart)
 - Transcribe audio using Deepgram Nova 3
-- Generate SRT subtitles in the original language
+- Generate SRT/VTT subtitles in the original language
 - Translate subtitles to any language
 - Burn subtitles into video with customizable styles
 - Interactive review and editing of transcripts before burning
-- Full comparison summary (original vs output)
+
+**Sharing:**
+- Share videos via local tunnel (pinggy/ngrok) with short, unguessable URLs
+- Custom HTML player page with chapters, subtitles, and passcode protection
+- Auto-generated title, description, and chapter timestamps from transcript
+- Single server manages all shared videos
+- One-command flow: `/video share` processes and shares the latest video
 
 ## Requirements
 
@@ -18,18 +25,19 @@ Process videos with optimization, subtitles, transcription, and translation.
 - Python 3
 - Deepgram API key (the skill will ask for one on first use and save it locally)
 
-## Usage
+## Commands
 
-Invoke with `/process-video` or just ask Claude to process a video in any folder.
-
-The skill will guide you through:
-1. Language preference for communication
-2. Video selection (shows 3 newest files)
-3. Optimization settings (resolution, quality, speed — explained in plain language)
-4. Subtitle options (original, translated, or both as separate videos)
-5. Style selection with visual previews
-6. Transcript review and editing
-7. Final processing with progress tracking
+| Command | Description |
+|---------|-------------|
+| `/video` | Interactive processing (full workflow) |
+| `/video process <path>` | Process a specific file interactively |
+| `/video share` | Process latest video + share (silent mode) |
+| `/video share <path>` | Process and share a specific file |
+| `/video start` | Start the share server + tunnel |
+| `/video stop` | Stop sharing |
+| `/video status` | List all shared videos with URLs and passcodes |
+| `/video copy <name>` | Copy a video's link + passcode to clipboard |
+| `/video remove <name>` | Remove a video from sharing |
 
 ## Subtitle Styles
 

@@ -119,6 +119,26 @@ def format_srt_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
+def format_vtt_time(seconds):
+    """Convert seconds to WebVTT time format: HH:MM:SS.mmm"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+
+
+def srt_to_vtt(srt_content):
+    """Convert SRT content to WebVTT format."""
+    vtt_lines = ["WEBVTT", ""]
+    for line in srt_content.split("\n"):
+        # Convert SRT timestamps (comma) to VTT (dot)
+        if " --> " in line:
+            line = line.replace(",", ".")
+        vtt_lines.append(line)
+    return "\n".join(vtt_lines)
+
+
 def json_to_srt(dg_response):
     """Convert Deepgram JSON response to SRT format using utterances."""
     results = dg_response.get("results", {})
@@ -187,6 +207,7 @@ def main():
     parser.add_argument("--output", "-o", help="Output SRT file path")
     parser.add_argument("--token", "-t", help="Deepgram API key (overrides env var and token file)")
     parser.add_argument("--json-output", help="Also save raw Deepgram JSON response to this path")
+    parser.add_argument("--vtt-output", help="Also save WebVTT version to this path")
     args = parser.parse_args()
 
     if not os.path.exists(args.video):
@@ -224,6 +245,13 @@ def main():
 
         line_count = srt_content.count("\n-->")
         print(f"SRT saved: {output_srt} ({line_count} subtitle entries)", flush=True)
+
+        # Optionally save WebVTT version
+        if args.vtt_output:
+            vtt_content = srt_to_vtt(srt_content)
+            with open(args.vtt_output, "w", encoding="utf-8") as f:
+                f.write(vtt_content)
+            print(f"VTT saved: {args.vtt_output}", flush=True)
 
     finally:
         if os.path.exists(audio_path):
