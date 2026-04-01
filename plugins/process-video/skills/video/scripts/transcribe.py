@@ -4,10 +4,11 @@ Transcribe audio using Deepgram Nova 3 and output SRT format.
 Extracts audio from video, sends to Deepgram, generates SRT.
 
 Usage:
-    python3 transcribe.py <video_path> [--language <lang>] [--output <srt_path>]
+    python3 transcribe.py <video_path> [--language <lang>] [--output <srt_path>] [--credential-dir <dir>]
 
     --language: Language code (e.g., 'en', 'de', 'fr'). Default: auto-detect.
     --output: Output SRT file path. Default: <video_name>.srt
+    --credential-dir: Directory containing deepgram_token file.
 """
 
 import sys
@@ -18,30 +19,36 @@ import argparse
 import tempfile
 
 DEEPGRAM_URL = "https://api.deepgram.com/v1/listen"
-SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOKEN_FILE = os.path.join(SKILL_DIR, "deepgram_token")
+DEFAULT_CREDENTIAL_DIR = os.path.expanduser("~/.config/video-skill")
 
 
-def resolve_api_key(cli_token=None):
-    """Resolve Deepgram API key from: CLI arg > env var > token file. Exit if none found."""
-    if cli_token:
-        return cli_token
+def resolve_api_key(credential_dir=None):
+    """Resolve Deepgram API key from: credential file (if dir given) > env var > default file."""
+    # When credential-dir is explicitly provided, prefer the file
+    if credential_dir:
+        token_file = os.path.join(credential_dir, "deepgram_token")
+        if os.path.exists(token_file):
+            with open(token_file) as f:
+                token = f.read().strip()
+                if token:
+                    return token
 
     env_key = os.environ.get("DEEPGRAM_API_KEY")
     if env_key:
         return env_key
 
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE) as f:
+    # Fallback: check default credential dir
+    token_file = os.path.join(DEFAULT_CREDENTIAL_DIR, "deepgram_token")
+    if os.path.exists(token_file):
+        with open(token_file) as f:
             token = f.read().strip()
             if token:
                 return token
 
     print(
         "No Deepgram API key found. Provide one via:\n"
-        "  1. --token <key> argument\n"
-        "  2. DEEPGRAM_API_KEY environment variable\n"
-        "  3. Token file at: " + TOKEN_FILE,
+        "  1. Token file at: " + os.path.join(credential_dir or DEFAULT_CREDENTIAL_DIR, "deepgram_token") + "\n"
+        "  2. DEEPGRAM_API_KEY environment variable",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -205,7 +212,7 @@ def main():
     parser.add_argument("video", help="Path to video file")
     parser.add_argument("--language", "-l", help="Language code (e.g., en, de, fr). Auto-detect if omitted.")
     parser.add_argument("--output", "-o", help="Output SRT file path")
-    parser.add_argument("--token", "-t", help="Deepgram API key (overrides env var and token file)")
+    parser.add_argument("--credential-dir", help="Directory containing deepgram_token file")
     parser.add_argument("--json-output", help="Also save raw Deepgram JSON response to this path")
     parser.add_argument("--vtt-output", help="Also save WebVTT version to this path")
     args = parser.parse_args()
@@ -214,7 +221,7 @@ def main():
         print(f"Video file not found: {args.video}", file=sys.stderr)
         sys.exit(1)
 
-    api_key = resolve_api_key(args.token)
+    api_key = resolve_api_key(args.credential_dir)
     video_base = os.path.splitext(os.path.basename(args.video))[0]
     video_dir = os.path.dirname(os.path.abspath(args.video))
     output_srt = args.output or os.path.join(video_dir, f"{video_base}.srt")

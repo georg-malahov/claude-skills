@@ -10,20 +10,28 @@ Process and share videos with a unified `/video` command.
 - Generate SRT/VTT subtitles in the original language
 - Translate subtitles to any language
 - Burn subtitles into video with customizable styles
-- Interactive review and editing of transcripts before burning
+- Parallel processing (optimize + transcribe run concurrently)
 
 **Sharing:**
-- Share videos via local tunnel (pinggy/ngrok) with short, unguessable URLs
+- Share via S3 (permanent URLs) or local tunnel (pinggy/ngrok)
 - Custom HTML player page with chapters, subtitles, and passcode protection
 - Auto-generated title, description, and chapter timestamps from transcript
-- Single server manages all shared videos
-- One-command flow: `/video share` processes and shares the latest video
+- Short, unguessable per-video URLs (`/v/<key>`)
+- Single-command flow: `/video share` processes and shares the latest video
+- One approval per workflow — scripts handle everything
+
+**Architecture:**
+- Entry-point scripts for each workflow (process_and_share, share_existing, upload_s3)
+- Credentials stored persistently at `~/.config/video-skill/` (never exposed in CLI args)
+- Preferences saved across sessions for consistent defaults
 
 ## Requirements
 
 - `ffmpeg` and `ffprobe` installed (`brew install ffmpeg` on macOS)
 - Python 3
-- Deepgram API key (the skill will ask for one on first use and save it locally)
+- `aws` CLI (for S3 uploads)
+- Deepgram API key (saved to `~/.config/video-skill/deepgram_token`)
+- S3 credentials (saved to `~/.config/video-skill/s3_credentials`)
 
 ## Commands
 
@@ -38,6 +46,19 @@ Process and share videos with a unified `/video` command.
 | `/video status` | List all shared videos with URLs and passcodes |
 | `/video copy <name>` | Copy a video's link + passcode to clipboard |
 | `/video remove <name>` | Remove a video from sharing |
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `process_and_share.py` | Main workflow: optimize + transcribe + render + upload |
+| `share_existing.py` | Share a pre-processed folder |
+| `upload_s3.py` | Parallel S3 upload with content types |
+| `render_page.py` | Generate HTML player from template + metadata |
+| `manage_registry.py` | Share registry CRUD + migration |
+| `transcribe.py` | Deepgram Nova 3 transcription → SRT + VTT |
+| `burn_subtitles.py` | Burn subtitles into video via ffmpeg |
+| `share_server.py` | Local HTTP server with `/v/<key>` routing |
 
 ## Subtitle Styles
 
