@@ -73,8 +73,14 @@ class ShareHandler(BaseHTTPRequestHandler):
         folder = registry[key]["folder"]
         folder_path = os.path.join(self.server.share_root, folder)
 
-        if len(parts) == 1 or parts[1] == "":
-            # Serve index.html
+        if len(parts) == 1:
+            # No trailing slash — redirect so relative URLs resolve correctly
+            self.send_response(301)
+            self.send_header("Location", "/v/" + key + "/")
+            self.end_headers()
+            return
+        elif parts[1] == "":
+            # Trailing slash — serve index.html
             file_path = os.path.join(folder_path, "index.html")
         else:
             # Serve requested file — prevent path traversal
@@ -154,7 +160,12 @@ class ShareHandler(BaseHTTPRequestHandler):
             return
 
         folder = registry[key]["folder"]
-        if len(parts) == 1 or parts[1] == "":
+        if len(parts) == 1:
+            self.send_response(301)
+            self.send_header("Location", "/v/" + key + "/")
+            self.end_headers()
+            return
+        elif parts[1] == "":
             file_path = os.path.join(self.server.share_root, folder, "index.html")
         else:
             file_path = os.path.join(self.server.share_root, folder, parts[1])
