@@ -336,6 +336,12 @@ def main():
     parser.add_argument("--context", default=None, help="Extra context for metadata generation")
     parser.add_argument("--download-button", action="store_true", default=True)
     parser.add_argument("--no-download-button", action="store_true")
+    parser.add_argument(
+        "--developer-analysis",
+        action="store_true",
+        default=False,
+        help="Ask the agent to also generate a developer-analysis block (bugs / UX / priorities).",
+    )
     args = parser.parse_args()
 
     if args.no_download_button:
@@ -437,6 +443,7 @@ def main():
             "vtt_filename": os.path.basename(vtt_path) if vtt_path else None,
             "subtitle_lang": args.subtitle_lang,
             "context": args.context,
+            "developer_analysis": bool(args.developer_analysis),
         }
         print(f"METADATA_INFO:{json.dumps(info_for_claude)}", flush=True)
         print(f"METADATA_READY:{output_dir}", flush=True)

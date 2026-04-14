@@ -62,9 +62,15 @@ If credentials are missing when needed, ask the user via `AskUserQuestion`:
   "subtitle_font": "Helvetica Neue",
   "target_language": "ru",
   "download_button": true,
-  "passcode": true
+  "passcode": true,
+  "developer_analysis": false
 }
 ```
+
+`developer_analysis`: when `true`, the model generates a "Developer Analysis"
+section (bugs / UX issues / open questions / prioritized action items) from the
+transcript and embeds it in the rendered page. Useful for screencasts that
+review a tool, comment on bugs, or give product/UX feedback. Off by default.
 
 **Saving:** After every interactive choice, update `preferences.json`. Always save `last_folder` after every run.
 **Loading:** Read at start. Use saved values as "(Recommended)" defaults. In silent mode, use directly.
@@ -150,7 +156,8 @@ One confirmation, one script execution, minimal interaction.
    ```
    Options: **Proceed (Recommended)** / **Switch to interactive mode**
 
-5. Run the main workflow script:
+5. Run the main workflow script. Pass `--developer-analysis` if the saved
+   preference (`developer_analysis: true`) is set:
    ```bash
    python3 "<scripts>/process_and_share.py" "<video_path>" \
        --output-dir "<output_folder>" \
@@ -160,24 +167,44 @@ One confirmation, one script execution, minimal interaction.
        --subtitles track \
        --share s3 \
        --passcode "<passcode>" \
+       [--developer-analysis] \
        [--context "<user_context>"]
    ```
 
 6. **Monitor stdout for `METADATA_READY:`** — when the script prints this marker:
    a. Read the `TRANSCRIPT_PREVIEW:` and `METADATA_INFO:` that preceded it
-   b. Parse `METADATA_INFO:` as JSON to get video_filename, vtt_filename, subtitle_lang
+   b. Parse `METADATA_INFO:` as JSON to get video_filename, vtt_filename,
+      subtitle_lang, and `developer_analysis` (boolean)
    c. Generate title, description, and 4-8 chapters from the transcript preview
-   d. Write `metadata.json` to the output directory:
+   d. **If `developer_analysis` is true**, also generate a structured analysis
+      block from the *full* transcript (read the SRT/VTT in the output dir, do
+      not rely on the truncated preview). The block must group findings into
+      Bugs / UX issues / Open questions / Action items split by priority — same
+      structure as the system-review-2026-04-09 page. Write the analysis as raw
+      HTML using these CSS classes from the template:
+      `severity-high`, `severity-mittel`, `severity-niedrig`, `severity-critical`,
+      `task-list`, `priority-section priority-{critical,high,medium,low}`,
+      `priority-label`, `summary-box`, `question-list`,
+      `<a class="timestamp" data-time="<seconds>">~MM:SS</a>` for clickable jumps.
+      Match the page language (RU / DE / EN — same as the transcript).
+   e. Write `metadata.json` to the output directory:
       ```json
       {
         "title": "Generated Title",
         "description": "Generated description...",
         "chapters": [{"time": 0, "label": "Intro"}, ...],
         "video_filename": "video_1080p.mp4",
-        "subtitle_tracks": [{"src": "video.vtt", "srclang": "en", "label": "English", "default": true}]
+        "subtitle_tracks": [{"src": "video.vtt", "srclang": "en", "label": "English", "default": true}],
+        "analysis": {
+          "title": "Анализ для разработчика",
+          "collapse_label": "Свернуть",
+          "expand_label": "Развернуть",
+          "html": "<blockquote>...</blockquote><hr><h2>Баги</h2>..."
+        }
       }
       ```
-   e. The script detects metadata.json and continues automatically.
+      Omit the `analysis` key entirely when `developer_analysis` is false.
+   f. The script detects metadata.json and continues automatically.
 
 7. Script finishes. Display result, link is already copied to clipboard.
 
@@ -210,7 +237,7 @@ Save to preferences. All subsequent communication in chosen language.
 Save `last_folder` to preferences.
 
 #### Step 3: Processing Options
-Ask two questions via `AskUserQuestion`:
+Ask three questions via `AskUserQuestion`:
 
 **Q1: Video optimization** — Save to `preferences.json` → `optimization`
 - Optimize for web (1080p) (Recommended)
@@ -223,6 +250,15 @@ Ask two questions via `AskUserQuestion`:
 - Add subtitles + burn into video
 - Add subtitles in another language (translate)
 - No subtitles
+
+**Q3: Developer analysis** — Save to `preferences.json` → `developer_analysis`
+- Off (Recommended for general videos)
+- Generate developer analysis (bugs / UX / priorities) — for tool reviews & bug reports
+
+When on, the model produces an "Analysis" section embedded in the rendered
+page: bugs with severity and timestamps, UX issues, open questions, and
+prioritized action items. See the silent-mode section above for the exact
+metadata.json shape and CSS classes to use.
 
 #### Step 4: Encoding Settings
 
@@ -246,9 +282,12 @@ If custom: ask Resolution, CRF, Preset, Audio individually. Save each to prefere
 Will process: video.mov (3840×2160, 3:44, 305 MB)
 → 1080p, CRF 23, medium, AAC 128k
 → Transcribe + subtitles as track
+→ Developer analysis: yes
 → Share via S3
 → Passcode: 482910
 ```
+
+The "Developer analysis" line is shown only when the option is enabled.
 
 **User approves once**, then run `process_and_share.py` with the chosen settings.
 
@@ -261,10 +300,18 @@ python3 "<scripts>/process_and_share.py" "<video_path>" \
     --subtitles <track|burn|none> [--subtitle-lang <code>] \
     --share <s3|tunnel|both|none> \
     --passcode "<passcode>" \
+    [--developer-analysis] \
     [--download-button | --no-download-button]
 ```
 
 **Monitor stdout for `METADATA_READY:`** — same as silent mode step 6.
+
+**Mandatory passcode verification:** when `--passcode` is passed, `render_page.py`
+now refuses to write a page that lacks the corresponding `PASSCODE_HASH` and
+exits non-zero. If you ever re-render an existing page manually, you MUST
+forward the passcode (look it up in `<share_folder>/.share_registry.json` if
+you don't have it). Silently producing an unprotected page is no longer
+possible from the rendering script.
 
 If subtitles are set to "burn", the script handles it internally after transcription.
 

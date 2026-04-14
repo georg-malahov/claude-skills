@@ -36,7 +36,44 @@ video { width: 100%; display: block; }
 .download-btn svg { width: 16px; height: 16px; fill: currentColor; }
 .download-original { color: #888; border-color: #2a2a2a; }
 .download-original:hover { color: #e8e8e8; }
-@media (max-width: 640px) { .container { padding: 12px 8px; } .title { font-size: 1.1rem; } }
+.skill-footer { margin-top: 32px; padding: 20px 0; border-top: 1px solid #2a2a2a; text-align: center; color: #666; font-size: 0.8rem; }
+.skill-footer a { color: #5c9aff; text-decoration: none; border-bottom: 1px dashed #5c9aff44; }
+.skill-footer a:hover { color: #7db4ff; }
+
+/* Developer Analysis section */
+.analysis { border-top: 1px solid #2a2a2a; padding-top: 32px; margin-top: 8px; }
+.analysis-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; cursor: pointer; }
+.analysis-header h2 { font-size: 1.2rem; font-weight: 600; }
+.analysis-toggle { color: #888; font-size: 0.85rem; user-select: none; }
+.analysis blockquote { border-left: 3px solid #333; padding: 8px 16px; color: #999; font-size: 0.9rem; margin-bottom: 24px; }
+.analysis hr { border: none; border-top: 1px solid #2a2a2a; margin: 28px 0; }
+.analysis h2 { font-size: 1.15rem; font-weight: 600; margin: 28px 0 16px; color: #e8e8e8; }
+.analysis h3 { font-size: 0.95rem; font-weight: 600; margin: 20px 0 8px; color: #ddd; }
+.analysis ul, .analysis ol { padding-left: 20px; margin: 8px 0 16px; }
+.analysis li { margin: 4px 0; font-size: 0.9rem; color: #ccc; }
+.analysis li strong { color: #e8e8e8; }
+.analysis .timestamp { color: #5c9aff; cursor: pointer; text-decoration: none; border-bottom: 1px dashed #5c9aff44; padding: 1px 4px; border-radius: 3px; font-variant-numeric: tabular-nums; transition: background 0.15s, color 0.15s; }
+.analysis .timestamp:hover { background: #5c9aff22; color: #7db4ff; }
+.analysis .severity-high { color: #ff6b6b; font-weight: 600; }
+.analysis .severity-mittel { color: #ffa94d; font-weight: 600; }
+.analysis .severity-niedrig { color: #69db7c; font-weight: 600; }
+.analysis .severity-critical { color: #ff4444; font-weight: 700; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.03em; }
+.analysis .task-list { list-style: none; padding-left: 4px; }
+.analysis .task-list li { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+.analysis .task-list li::before { content: ""; display: inline-block; width: 16px; height: 16px; min-width: 16px; border: 1.5px solid #555; border-radius: 3px; margin-top: 2px; }
+.analysis .priority-section { margin: 20px 0; padding: 16px; border-radius: 8px; }
+.analysis .priority-critical { background: #2a1515; border: 1px solid #441111; }
+.analysis .priority-high { background: #2a2015; border: 1px solid #443311; }
+.analysis .priority-medium { background: #1a1a1a; border: 1px solid #333; }
+.analysis .priority-low { background: #151a15; border: 1px solid #1a331a; }
+.analysis .priority-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; margin-bottom: 10px; }
+.analysis .summary-box { background: #1a1a2a; border: 1px solid #2a2a44; border-radius: 8px; padding: 20px; margin-top: 16px; }
+.analysis .summary-box ol, .analysis .summary-box ul { margin: 8px 0; }
+.analysis .question-list { counter-reset: question; list-style: none; padding-left: 0; }
+.analysis .question-list li { counter-increment: question; padding: 10px 14px; margin: 6px 0; background: #1a1a1a; border-radius: 6px; border-left: 3px solid #5c9aff; }
+.analysis .question-list li::before { content: counter(question) "."; color: #5c9aff; font-weight: 600; margin-right: 8px; }
+
+@media (max-width: 640px) { .container { padding: 12px 8px; } .title { font-size: 1.1rem; } .analysis h2 { font-size: 1rem; } }
 </style>
 </head>
 <body>
@@ -67,6 +104,10 @@ video { width: 100%; display: block; }
       <h3>Chapters</h3>
       <div id="chaptersList"></div>
     </div>
+  </div>
+{{ANALYSIS_BLOCK}}
+  <div class="skill-footer">
+    Generated with the <a href="https://github.com/georg-malahov/claude-skills" target="_blank" rel="noopener">process-video</a> Claude Code skill
   </div>
 </div>
 
@@ -147,6 +188,32 @@ video { width: 100%; display: block; }
       });
     });
   }
+
+  // Clickable timestamps in analysis (no-op when no analysis block)
+  document.querySelectorAll(".analysis .timestamp").forEach(function(el) {
+    el.addEventListener("click", function(e) {
+      e.preventDefault();
+      var time = parseInt(el.dataset.time, 10);
+      if (isNaN(time)) return;
+      video.currentTime = time;
+      video.play();
+      video.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
+
+  // Toggle developer analysis section (no-op when no analysis block)
+  window.toggleAnalysis = function() {
+    var c = document.getElementById("analysisContent");
+    var t = document.getElementById("analysisToggle");
+    if (!c || !t) return;
+    if (c.style.display === "none") {
+      c.style.display = "block";
+      t.textContent = "[ " + (t.dataset.collapse || "Collapse") + " ]";
+    } else {
+      c.style.display = "none";
+      t.textContent = "[ " + (t.dataset.expand || "Expand") + " ]";
+    }
+  };
 
   function formatTime(secs) {
     var m = Math.floor(secs / 60);

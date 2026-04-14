@@ -40,6 +40,58 @@ def build_subtitle_tracks(tracks):
     return "\n".join(parts)
 
 
+def build_analysis_block(analysis):
+    """Build the developer-analysis HTML block from metadata.
+
+    `analysis` may be a string (raw HTML body) or a dict:
+        {
+          "html": "<blockquote>...</blockquote>...",
+          "title": "Developer Analysis",        # optional, defaults English
+          "collapse_label": "Collapse",         # optional
+          "expand_label": "Expand",             # optional
+        }
+
+    Returns "" when there is no analysis content.
+    """
+    if not analysis:
+        return ""
+    if isinstance(analysis, str):
+        body_html = analysis
+        title = "Developer Analysis"
+        collapse = "Collapse"
+        expand = "Expand"
+    elif isinstance(analysis, dict):
+        body_html = analysis.get("html", "").strip()
+        if not body_html:
+            return ""
+        title = analysis.get("title", "Developer Analysis")
+        collapse = analysis.get("collapse_label", "Collapse")
+        expand = analysis.get("expand_label", "Expand")
+    else:
+        return ""
+
+    return (
+        '\n  <div class="analysis" id="analysisSection">\n'
+        '    <div class="analysis-header" onclick="toggleAnalysis()">\n'
+        f'      <h2>{title}</h2>\n'
+        f'      <span class="analysis-toggle" id="analysisToggle"'
+        f' data-collapse="{collapse}" data-expand="{expand}">[ {collapse} ]</span>\n'
+        '    </div>\n'
+        '    <div id="analysisContent">\n'
+        f'{body_html}\n'
+        '    </div>\n'
+        '  </div>\n'
+    )
+
+
+def verify_passcode_in_html(html, passcode_hash):
+    """Return True if the rendered HTML contains the expected passcode hash."""
+    if not passcode_hash:
+        return False
+    needle = f'PASSCODE_HASH = "{passcode_hash}"'
+    return needle in html
+
+
 def build_download_button(video_filename, original_filename=None):
     """Build download button HTML."""
     parts = []
@@ -65,10 +117,12 @@ def render(template_path, metadata, passcode=None, download_button=False, origin
     video_filename = metadata.get("video_filename", "video.mp4")
     chapters = metadata.get("chapters", [])
     subtitle_tracks = metadata.get("subtitle_tracks", [])
+    analysis = metadata.get("analysis")
 
     passcode_hash = simple_hash(passcode) if passcode else ""
     tracks_html = build_subtitle_tracks(subtitle_tracks)
     chapters_json = json.dumps(chapters, ensure_ascii=False)
+    analysis_block = build_analysis_block(analysis)
 
     if download_button:
         download_html = build_download_button(video_filename, original_filename)
@@ -90,6 +144,7 @@ def render(template_path, metadata, passcode=None, download_button=False, origin
         "{{PASSCODE_HASH}}": passcode_hash,
         "{{DOWNLOAD_BUTTON}}": download_html,
         "{{ORIGINAL_DOWNLOAD}}": original_download,
+        "{{ANALYSIS_BLOCK}}": analysis_block,
     }
 
     for token, value in replacements.items():
@@ -130,6 +185,25 @@ def main():
     output_path = os.path.join(args.output_dir, "index.html")
     with open(output_path, "w") as f:
         f.write(html)
+
+    # Mandatory passcode verification: if a passcode was requested, the rendered
+    # page MUST contain the corresponding hash. Otherwise the page would be
+    # silently unprotected — the exact bug we hit when re-rendering an existing
+    # share without forwarding --passcode.
+    if args.passcode:
+        expected_hash = simple_hash(args.passcode)
+        if not verify_passcode_in_html(html, expected_hash):
+            print(
+                f"Error: passcode was provided but the rendered page does not "
+                f"contain PASSCODE_HASH = \"{expected_hash}\". The page would "
+                f"be unprotected. Aborting.",
+                file=sys.stderr,
+            )
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+            sys.exit(2)
 
     print(f"Rendered {output_path} ({len(html)} bytes)")
 
