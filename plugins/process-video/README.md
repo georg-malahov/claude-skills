@@ -15,7 +15,13 @@ Process and share videos with a unified `/video` command.
 **Sharing:**
 - Share via S3 (permanent URLs) or local tunnel (pinggy/ngrok)
 - Custom HTML player page with chapters, subtitles, and passcode protection
+- Mandatory passcode verification at render time — when a passcode is set,
+  the rendered page must contain the matching hash or the script aborts
+  and removes the unprotected file (no silently public pages)
 - Auto-generated title, description, and chapter timestamps from transcript
+- Optional **developer analysis** section: bugs, UX issues, open questions
+  and prioritized action items extracted from the transcript and embedded
+  in the page with clickable timestamps that jump the player
 - Short, unguessable per-video URLs (`/v/<key>`)
 - Single-command flow: `/video share` processes and shares the latest video
 - One approval per workflow — scripts handle everything
@@ -68,3 +74,43 @@ Process and share videos with a unified `/video` command.
 | Modern         | Helvetica Neue  | 18   | 1    | 1       | 1      |
 | Cinematic      | Georgia         | 18   | 1    | 0       | 0      |
 | High Contrast  | Arial           | 22   | 2    | 2       | 1      |
+
+## Developer Analysis
+
+For screencasts that review a tool, comment on bugs, or give product/UX
+feedback, the skill can embed a structured **Developer Analysis** section
+in the rendered page. When enabled, the model reads the full transcript
+and produces:
+
+- **Bugs** with severity (`high` / `mittel` / `niedrig` / `critical`),
+  in-video timestamps, description, impact and suggested action
+- **UX issues** with priority and short rationale
+- **Open questions** for the product owner / tester
+- **Action items** grouped into critical / high / medium / low priority
+  buckets
+- A short summary box
+
+Timestamps in the analysis are clickable and jump the player to that
+moment.
+
+To enable, set `developer_analysis: true` in
+`~/.config/video-skill/preferences.json`, pick the option in the
+interactive flow (Step 3 → Q3), or pass `--developer-analysis` to
+`process_and_share.py` directly. Off by default — for general
+screencasts the analysis would be noise.
+
+## Passcode protection
+
+Passcodes are passed via `--passcode <code>` to `process_and_share.py`
+or `share_existing.py`. The HTML player gates content behind a
+client-side passcode check (cleartext hash, not cryptographic — meant
+to keep links unguessable, not to protect strong secrets).
+
+`render_page.py` enforces a hard rule: **if `--passcode` is provided,
+the rendered HTML must contain the matching hash**. If the substitution
+silently failed for any reason (template missing the placeholder,
+re-render forgetting to forward the passcode, etc.), the script exits
+with code 2 and removes the bad output file — so an unprotected page
+can't slip out. Always forward the passcode when re-rendering an
+existing share; you can look it up in
+`<share_folder>/.share_registry.json`.
