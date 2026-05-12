@@ -57,6 +57,7 @@ Interview the user relentlessly about every aspect of the work until reaching sh
 2. For each pair of work streams: does one depend on the other, or are they independent?
 3. What shared resources (schema, layouts, navigation, services) must exist before parallel work begins?
 4. What integration points need a merge step afterward?
+5. **Are any new npm/bun dependencies needed?** If yes, list them now — they will become a host-side "BEFORE LAUNCH" task (see Step P3 dependency callout). Prefer existing deps (shadcn/ui, react-hook-form, zod, TanStack Query, base-ui, lucide-react, project-specific staples) over adding new ones unless there's a strong reason.
 
 When you have enough context, summarize your understanding and ask the user to confirm before proceeding to decomposition.
 
@@ -124,6 +125,20 @@ For each work stream, write a plan file in `docs/plans/YYYY-MM-DD-<name>.md`.
 - The specific scope for its work stream
 - Awareness of what other parallel plans are doing (to avoid conflicts)
 - Dependencies: which plans must complete before this one starts
+
+**Dependency callout (CRITICAL — host-side preparation):**
+
+If any plan introduces a **new npm/bun dependency**, do NOT let ralphex `bun add` it from inside the container. The container's mounted `node_modules` volume interacts poorly with writable-layer installs — runs stumble repeatedly.
+
+Instead, every plan that needs a new dep MUST include a clearly-marked **"BEFORE LAUNCH (host)"** section at the top of its Context block, listing the packages. The operator runs these on the **host** before invoking `/orchestrate execute`:
+
+```bash
+bun add <pkg> [<pkg> ...]              # updates package.json + bun.lock
+git add package.json bun.lock && git commit -m "deps: add <pkgs> for <feature>"
+bun run image:build                    # rebake ralphex-bun image with the new deps
+```
+
+Only then is it safe to launch ralphex. Document the same in the merge plan if merge-time wiring adds deps.
 
 **LEAN PLANS — critical change**: per-task ralphex runs in Execute Flow will use `--tasks-only`. That means per-task plans **do not include** preview deploys, E2E runs, or review iterations. Each plan's terminal task is a lightweight validation:
 
@@ -281,9 +296,21 @@ Additionally:
 - Confirm the manifest's `Current State` is `not_started` (otherwise route to RESUME)
 - Confirm each per-wave plan file referenced in the manifest exists
 
+**Host-side dependency check (CRITICAL):**
+
+Scan the per-wave plans' Context blocks for any **"BEFORE LAUNCH (host)"** section (see Plan flow Step P3 dependency callout). If present:
+
+1. Verify `package.json` + `bun.lock` already include the listed packages — `bun pm ls` or `jq '.dependencies, .devDependencies' package.json | grep <pkg>`. If missing, STOP and ask the user to run `bun add <pkg>` on the host first.
+2. Verify the ralphex image is fresher than the last `bun.lock` change:
+   ```bash
+   docker image inspect <image-name> --format '{{.Created}}'   # image build time
+   git log -1 --format=%cI bun.lock                            # last lock change
+   ```
+   If the image predates `bun.lock`, STOP and ask the user to run `bun run image:build` before launching. Ralphex containers cannot reliably `bun add` mid-run — installs land in the writable layer but fight with the mounted `node_modules` volume.
+
 **Summarize the pre-flight state** to the user. Use AskUserQuestion to confirm before launching.
 
-If image is missing, suggest `bun run image:build` (or the project's image-build command).
+If image is missing or stale, suggest `bun run image:build` (or the project's image-build command).
 
 ### Step E1: Launch Current Wave
 
