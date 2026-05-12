@@ -5,7 +5,7 @@
     "email": "georg@malahov.io"
   },
   "metadata": {
-    "description": "Claude Code plugins for video processing, transcription, subtitles, and optimization."
+    "description": "Claude Code plugins for video processing, transcription, subtitles, and dev workflow orchestration."
   },
   "plugins": [
     {
@@ -19,6 +19,18 @@
       },
       "category": "productivity",
       "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram"]
+    },
+    {
+      "name": "dev-workflow",
+      "description": "Slash commands for orchestrated parallel ralphex plan execution, gated PR creation, test-first bug fixing, and visual preview sanity checks.",
+      "source": "./plugins/dev-workflow",
+      "version": "0.1.0",
+      "author": {
+        "name": "Georg Malahov",
+        "email": "georg@malahov.io"
+      },
+      "category": "productivity",
+      "keywords": ["ralphex", "orchestrate", "pr", "tdd", "workflow"]
     }
   ]
 }

@@ -16,20 +16,18 @@ Add the marketplace and install the plugin you need:
 | Plugin | Description |
 |--------|-------------|
 | [process-video](plugins/process-video/) | Process and share videos: optimize, transcribe, subtitles, and share via tunnel with `/video` command |
+| [dev-workflow](plugins/dev-workflow/) | `/orchestrate`, `/create-pr`, `/fix-to-green`, `/preview-check` — multi-wave ralphex orchestration, gated PR creation, test-first bug fixing, visual sanity checks |
 
 ## Adding New Plugins
 
-Each plugin lives in `plugins/<plugin-name>/` with this structure:
+Each plugin lives in `plugins/<plugin-name>/` with one of these layouts:
 
 ```
 plugins/<plugin-name>/
-├── .claude-plugin/
-│   └── plugin.json
+├── .claude-plugin/plugin.json
 ├── README.md
-└── skills/
-    └── <skill-name>/
-        ├── SKILL.md
-        └── scripts/       (optional)
+├── skills/<skill-name>/SKILL.md      # for skills
+└── commands/<command-name>.md        # for slash commands
 ```
 
-After adding a new plugin, register it in `.claude-plugin/marketplace.json`.
+A plugin can ship both `skills/` and `commands/`. After adding a new plugin, register it in `.claude-plugin/marketplace.json`.
