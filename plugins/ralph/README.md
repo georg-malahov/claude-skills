@@ -73,12 +73,42 @@ Bundled subagents (registered as first-class Claude Code agents via plugin manif
 | `ralph-testing` | sonnet | Unit-test coverage and quality (no E2E) |
 | `ralph-simplification` | sonnet | Over-engineering, dead code, premature abstractions |
 | `ralph-documentation` | haiku | README / ADR / inline-doc updates |
-| `ralph-task` | sonnet | Implements one plan task |
-| `ralph-fixer` | sonnet | Applies findings from one review round |
+| `ralph-task` | sonnet | Implements one plan task (has `Skill` access for TDD, design, SEO, etc.) |
+| `ralph-fixer` | sonnet | Applies findings from one review round (has `Skill` access for debugging, polish, verification) |
 
 Five review agents ported from `theomedis-physio/.ralphex/agents/` and tuned for T3 + ZenStack + Better Auth + shadcn. Override any subagent per project by dropping `.claude/agents/ralph-<name>.md` into the project — Claude Code merges plugin-bundled and project-local agents automatically.
 
 Model choices follow the theomedis pattern: opus for the high-stakes security review, haiku for cheap text work, sonnet for the balanced middle. Override per project by changing `model:` in the local agent file.
+
+### Tool grants
+
+| Subagent | Tools | Notes |
+|---|---|---|
+| `ralph-quality` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-implementation` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-testing` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-simplification` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-documentation` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-task` | `Read, Write, Edit, Grep, Glob, Bash, Skill` | Skill access for TDD, frontend, SEO, debugging |
+| `ralph-fixer` | `Read, Write, Edit, Grep, Glob, Bash, Skill` | Skill access for debugging, polish, verification |
+
+**No MCP tools, no WebFetch, no WebSearch** — by design. The loop is deterministic and offline-capable.
+
+### Hardening Bash for review agents (optional)
+
+Claude Code does **not** allow per-subagent `Bash(<pattern>:*)` restrictions in the `tools:` frontmatter — those patterns only work in `permissions.allow` at the session level. If a project wants tighter Bash for the review phase, add to `.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm:*)", "Bash(curl:*)", "Bash(wget:*)"
+    ]
+  }
+}
+```
+
+That applies to the whole session, not just review agents, but it's the closest we can get to "review agents can only diff/log."
 
 ## Autonomous mode
 
