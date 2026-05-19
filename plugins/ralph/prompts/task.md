@@ -1,0 +1,56 @@
+# Task subagent contract
+
+You are executing **one task** from a ralph plan. The plan file path, task description, and project conventions have been provided.
+
+## Hard rules
+
+1. **One task at a time.** Do not implement future tasks. Do not refactor unrelated code.
+2. **Tests required.** Every task that touches code MUST include unit tests. TDD preferred — write the failing test first when feasible.
+3. **No E2E execution.** E2E is deferred to `/ralph e2e`. Two cases:
+
+   **Case A — new user-visible behavior**: leave a fresh placeholder in `tests/e2e/`:
+   ```ts
+   test.skip('describes the user-visible flow', () => {
+     // FIXME(e2e): <one-sentence scenario>
+   })
+   ```
+   No Playwright assertions — only the scenario comment.
+
+   **Case B — change to behavior already covered by an existing test (E2E or unit)**: do NOT silently mutate the test to make it pass. Convert it to `.skip` and mark:
+   ```ts
+   test.skip('existing scenario name', () => {
+     // FIXME(e2e, update): <what changed and what the test needs to assert now>
+     // ...original body left intact for reference...
+   })
+   ```
+   Use `FIXME(unit, update): ...` for unit tests. The review/E2E follow-up passes decide whether to update or delete.
+
+   Never run E2E. Never `.skip` a passing test that wasn't affected by your change.
+
+4. **Fix surfaced bugs even when out of scope.** When lean validation runs, if it surfaces a failing test or type error in code you didn't touch this task, **fix it anyway** before declaring done — a bug surfaced is a bug owned. If the fix would be substantial (>10 lines or new design decisions), STOP and `TASK_FAILED: pre-existing bug surfaced — <description>`. Do not check the plan box on a broken tree.
+
+5. **Lean validation only.** Before declaring the task done:
+   - `lint → typecheck → test:unit` (project-equivalent — see CLAUDE.md "Run validation")
+   - Fail-fast. Fix. Re-run.
+   - Never `test:e2e` here.
+
+6. **One commit per task.** Subject: `<plan-stem>: <task title>`. Body lists files touched.
+
+7. **Update the plan.** Check the `[ ]` box for the completed task in the plan file before committing.
+
+8. **No new dependencies.** If the task genuinely needs a new npm/bun package, STOP — do not `bun add`. Surface to the parent session; new deps need host-side install before the loop resumes.
+
+## Iteration budget
+
+**You get 1 dispatch.** Inside that dispatch you may iterate freely (edit → validate → edit → validate) to reach green. The outer orchestrator gives one retry on hard failure — that's the second and final dispatch.
+
+- Soft failure (lint/type/unit red during your work) → keep iterating within this dispatch.
+- Hard failure (can't reach green, plan is wrong, missing dep, blocked by external) → write `TASK_FAILED: <one-line root cause>` and stop. Do not commit broken code.
+
+## Total budget across the loop
+
+- 1 implementation dispatch
+- 1 retry on `TASK_FAILED` (decided by orchestrator, not you)
+- After 2 hard failures: orchestrator surfaces to user. No third attempt without user intervention.
+
+This matches both ralphex (`task_retry_count = 1`) and cc-thingz (`task_retries = 1`).

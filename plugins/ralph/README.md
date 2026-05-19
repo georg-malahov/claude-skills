@@ -1,0 +1,189 @@
+# ralph
+
+Native Claude-Code agentic loop. A clean replacement for the Docker-hosted ralphex flow, built as a single `/ralph` command with six subcommands. Runs in parallel with the existing `/orchestrate` and `/create-pr` from `dev-workflow` — nothing in this plugin replaces or modifies them.
+
+## Pipeline
+
+```
+brainstorm  →  plan  →  execute  →  review  →  e2e  →  pr
+   ↓           ↓ auto    ↓ auto      ↓ accumulate-loops back
+   ↓           single   single        to plan via review-*.md
+   ↓           or       or wave
+   ↓           parallel
+   ↓
+docs/plans/.scratch/brainstorm-*.md (consumed by plan)
+                                                                  
+docs/plans/.scratch/review-*.md (consumed by plan, like brainstorm)
+```
+
+## Subcommands
+
+| Command | Purpose |
+|---|---|
+| `/ralph brainstorm [topic]` | Interview-driven context gathering. Writes a dump that `plan` picks up. |
+| `/ralph plan [description]` | Grill via `interview`, auto-route single vs parallel-wave mode, emit plan(s) + (if parallel) manifest. |
+| `/ralph execute [resume]` | Native ralph-loop. Auto-detects single vs wave from manifest. No Docker. |
+| `/ralph review [mode]` | Manual visual Q&A via `interview`. Modes: `accumulate` (logs follow-up dump) or `fix-now` (inline small commits). |
+| `/ralph e2e [glob]` | Implement `FIXME(e2e)` placeholders one test at a time, in a separate session. |
+| `/ralph pr [mode]` | Create a PR. Modes: `lean` (lint+type+unit) or `hardened` (adds E2E). Gated. |
+
+## Subcommand independence
+
+Every subcommand can run standalone — they reuse context from prior steps if present, otherwise they run cleanly from scratch:
+
+- `/ralph plan` with no brainstorm/review dump → grills from scratch.
+- `/ralph execute` with no plan → scans `docs/plans/` for unfinished plans and asks which to run.
+- `/ralph review` with no execute context → walks recent uncommitted/unreviewed changes against the default branch.
+- `/ralph e2e` with no FIXME markers → audits existing tests against current implementation: finds gaps in coverage, stale assertions, untested user-visible flows. The implicit ask becomes "what's missing or rotten?", not "what's marked."
+- `/ralph pr` with no validation history → runs the gate fresh.
+
+The pipeline shape (`brainstorm → plan → execute → review → e2e → pr`) is the **happy path**. Each subcommand is also a standalone tool.
+
+## Session manifests — resume any session, any time
+
+Every subcommand writes a manifest at `docs/plans/.scratch/session-<timestamp>-<slug>.md` with frontmatter (`kind`, `status: in_progress|completed|abandoned`, `started`, `updated`, `artifact`) and a checkpoint log appended at each meaningful step.
+
+On invocation, every subcommand scans for `in_progress` manifests first. If one matches the current kind, offers Resume / Start new (abandon old) / Cancel. If one of a different kind is mid-flight, surfaces it as context.
+
+This is the resumability contract: any session can be paused mid-stream (Ctrl+C, browser close, hardware crash) and picked up later without losing intent. See `commands/ralph.md` → "Session manifests" for the full spec.
+
+## Surfaced bugs are owned
+
+Across `/ralph execute`, the review loop, and `/ralph e2e`: if validation surfaces a failing test or error in code outside the current change, **fix it anyway**. A bug surfaced is a bug owned. The only exception is when the fix is substantial enough to be its own plan — then surface it to the user instead of silently scoping creep.
+
+## What's deliberately out of the main loop
+
+- **E2E execution.** During `execute`, user-visible behavior gets a `test.skip` + `FIXME(e2e): <scenario>` placeholder in `tests/e2e/`. `/ralph e2e` consumes these later, after the UI has settled via `/ralph review`.
+- **Codex / external review tools.** Can be reintroduced as additional reviewer agents under `agents/` if needed.
+- **Docker containers, image rebuilds, host-side dep dances.** Not needed in the native flow.
+
+## Customization
+
+Three-tier override chain (first match wins):
+1. **Project:** `.claude/ralph/{agents,prompts}/<name>.md`
+2. **Bundled:** `${CLAUDE_PLUGIN_ROOT}/agents,prompts/<name>.md` (this plugin)
+3. Fail loud — no embedded fallback beyond the bundled defaults.
+
+Bundled subagents (registered as first-class Claude Code agents via plugin manifest, with `name` / `model` / `tools` in frontmatter):
+
+| Subagent | Model | Effort | Color | Role |
+|---|---|---|---|---|
+| `ralph-quality` | opus | **xhigh** | red | Security, multi-tenant safety, ZenStack policy gaps, TS correctness |
+| `ralph-implementation` | sonnet | — | blue | Plan-vs-code correctness |
+| `ralph-testing` | sonnet | — | green | Unit-test coverage and quality (no E2E) |
+| `ralph-simplification` | sonnet | — | yellow | Over-engineering, dead code, premature abstractions |
+| `ralph-documentation` | haiku | — | gray | README / ADR / inline-doc updates |
+| `ralph-task` | sonnet | — | purple | Implements one plan task; preloads `verification-before-completion`; Skill access for TDD/design/SEO/debugging |
+| `ralph-fixer` | sonnet | — | orange | Applies findings from one review round; preloads `verification-before-completion`; Skill access |
+
+Five review agents ported from `theomedis-physio/.ralphex/agents/` and tuned for T3 + ZenStack + Better Auth + shadcn. Override any subagent per project by dropping `.claude/agents/ralph-<name>.md` into the project — Claude Code merges plugin-bundled and project-local agents automatically.
+
+Model choices follow the theomedis pattern: opus for the high-stakes security review, haiku for cheap text work, sonnet for the balanced middle. Override per project by changing `model:` in the local agent file.
+
+### Tool grants
+
+| Subagent | Tools | Notes |
+|---|---|---|
+| `ralph-quality` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-implementation` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-testing` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-simplification` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-documentation` | `Read, Grep, Glob, Bash` | Read-only |
+| `ralph-task` | `Read, Write, Edit, Grep, Glob, Bash, Skill` | Skill access for TDD, frontend, SEO, debugging |
+| `ralph-fixer` | `Read, Write, Edit, Grep, Glob, Bash, Skill` | Skill access for debugging, polish, verification |
+
+**No MCP tools, no WebFetch, no WebSearch** — by design. The loop is deterministic and offline-capable.
+
+### Hardening Bash for review agents (optional)
+
+Claude Code does **not** allow per-subagent `Bash(<pattern>:*)` restrictions in the `tools:` frontmatter — those patterns only work in `permissions.allow` at the session level. If a project wants tighter Bash for the review phase, add to `.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm:*)", "Bash(curl:*)", "Bash(wget:*)"
+    ]
+  }
+}
+```
+
+That applies to the whole session, not just review agents, but it's the closest we can get to "review agents can only diff/log."
+
+## Autonomous mode
+
+If the user's request includes a phrase like `"implement autonomously and create pull request"`, the dispatcher sets `RALPH_AUTO_PR=true` and subsequent subcommands skip confirmation prompts:
+- `plan` → chains into `execute` without asking
+- `execute` → chains into `pr` (lean) without asking, or into `review` → `e2e` → `pr` (hardened) if the user also said `"hardened"` / `"with review"` / `"with e2e"`
+- `pr` → skips the "Create PR?" confirmation
+
+Without the phrase, every subcommand stops at its natural handoff and asks via `AskUserQuestion`.
+
+## Coexistence with `/orchestrate` and `/create-pr`
+
+This plugin is purely additive. `/orchestrate` (the ralphex-driven flow) keeps working unchanged. `/create-pr` keeps working unchanged. Use whichever fits the project — `/ralph` for new work, `/orchestrate` for projects already invested in the Docker flow.
+
+## Loop budgets (matches originals)
+
+| Loop | Cap | Source |
+|---|---|---|
+| Per-task | 2 dispatches (1 + 1 retry) | ralphex `task_retry_count=1`, cc-thingz `task_retries=1` |
+| Outer task loop | 50 iterations safety | both originals |
+| Review loop | 5 iterations (iter 1 = 5 agents, iter 2+ = 2 agents) | both originals merged |
+| Review exit | all-clean OR HEAD-unchanged after fixer OR cap | ralphex HEAD short-circuit |
+| Per-E2E-test | 3 fix iterations | ralph-specific |
+
+Wave mode uses the same split as ralphex `--tasks-only`: per-wave plans run tasks-only (no review), the merge plan runs the full pipeline.
+
+## Cloud deployment
+
+The plugin is just markdown — no binaries, no Docker, no native dependencies. It runs anywhere Claude Code runs, with three caveats: where the plugin *files* live, where session state persists, and what runtime tools must be preinstalled.
+
+### Where can `ralph` actually be installed?
+
+Claude Code has three plugin scopes:
+
+| Scope | Location | Lifetime | Best for |
+|---|---|---|---|
+| **User-level** | `~/.claude/plugins/` (or equivalent), installed via `/plugin install` from a marketplace | Persists across projects for that user; lost in ephemeral cloud envs unless that directory is mounted/persisted | Local development on your own machine |
+| **Repo-vendored** | `.claude/plugins/ralph/` checked into the project repo | Travels with the repo; works in any cloud env that clones the repo | CI runners, ephemeral cloud VMs, shared team setups |
+| **Pre-baked image** | Installed at image-build time (e.g. in a Dockerfile for a cloud dev container) | Lives for the image's lifetime; rebuilds when the image rebuilds | Fleet of identical cloud workstations, GitHub Codespaces, gitpod, etc. |
+
+### Will it exist in a cloud environment?
+
+Only if you put it there. A fresh cloud container has no plugins by default — Claude Code starts clean. Three options:
+
+**Option 1 — Vendor into the project repo (most reliable).** Copy `plugins/ralph/` to `<your-project>/.claude/plugins/ralph/` and commit it. Every clone of the project gets the plugin automatically. Trade-off: plugin updates require a manual sync from the source repo. Good for teams where the workflow shouldn't drift per-developer.
+
+**Option 2 — Install on session start.** Add a startup hook or boot script that runs the equivalent of `claude plugin add georg-malahov/claude-skills && claude plugin install ralph` when the cloud env spins up. Requires network access to GitHub and any auth the marketplace needs. Trade-off: the cloud env must successfully reach the marketplace on every cold start.
+
+**Option 3 — Bake into a custom image.** If you control the cloud image (Codespaces devcontainer, custom AMI, custom Hetzner template), install the plugin once at image-build time. Trade-off: image rebuilds needed for plugin updates.
+
+### Where is the boundary between scopes?
+
+- **User-level plugins** belong to the *operator*. They reflect personal workflow preferences. They don't follow the repo and don't follow teammates.
+- **Repo-vendored plugins** belong to the *project*. They guarantee that every contributor (and every CI runner) uses the same workflow tooling. Use this when the workflow is part of how the project is meant to be built.
+- **Repo-vendored agent/prompt overrides** at `.claude/ralph/{agents,prompts}/` are a *third, finer-grained* scope: the plugin itself can be user-level OR repo-vendored, and either way these overrides tune it for *this specific project*. That's how `theomedis-physio/.claude/ralph/agents/quality.md` could specialize the bundled quality agent for that codebase without forking the whole plugin.
+
+A practical pattern:
+- Solo / personal projects → user-level install + per-project overrides under `.claude/ralph/`.
+- Team / cloud / CI → vendor the whole plugin into `.claude/plugins/ralph/` in each project that uses it. No drift, no install step, no marketplace dependency at runtime.
+
+### Cloud runtime checklist
+
+For any cloud env where ralph will run end-to-end:
+
+- `git` ≥ 2.40 (for worktrees in wave mode)
+- `bun` (or the project's chosen runtime) for lean validation
+- `gh` CLI authenticated via `GITHUB_TOKEN` (for `/ralph pr`)
+- Writable filesystem with enough space for `.ralph/worktrees/` if using wave mode
+- `docs/plans/.scratch/` checked into the repo OR persisted across sessions — otherwise session manifests vanish on container restart and resume across cold starts won't work
+- Playwright + browser binaries **only** in the env where you'll run `/ralph e2e` — the main loop never needs them
+
+### What's better here than ralphex was
+
+Ralphex required Docker-in-Docker (or nested containers) for its execution model. Many cloud platforms either forbid that or make it slow. `ralph` runs on a plain runtime — if there's `git` and `bun`, it works. Cloud deployment is "clone the repo" instead of "build and ship a container image."
+
+## Status
+
+v0.1.0 — scaffold. Each subcommand is self-contained and independently testable on a small change. Order of validation against a real repo: `pr` (smallest surface) → `brainstorm` → `review` → `execute` single mode → `plan` single mode → `execute` wave mode → `plan` parallel mode → `e2e`.
