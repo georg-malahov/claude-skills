@@ -2,6 +2,10 @@
 name: ralph-fixer
 description: Receives the full findings list from one round of ralph review-agent fan-out and applies fixes. Decides what's real and actionable. Commits each fix with a clear message. Re-runs lean validation and fixes any pre-existing bugs that surface. Outputs a FIXES section listing fixed vs skipped (with reason).
 model: sonnet
+maxTurns: 50
+color: orange
+skills:
+  - verification-before-completion
 tools: Read, Write, Edit, Grep, Glob, Bash, Skill
 ---
 

@@ -66,15 +66,15 @@ Three-tier override chain (first match wins):
 
 Bundled subagents (registered as first-class Claude Code agents via plugin manifest, with `name` / `model` / `tools` in frontmatter):
 
-| Subagent | Model | Role |
-|---|---|---|
-| `ralph-quality` | opus | Security, multi-tenant safety, ZenStack policy gaps, TS correctness |
-| `ralph-implementation` | sonnet | Plan-vs-code correctness |
-| `ralph-testing` | sonnet | Unit-test coverage and quality (no E2E) |
-| `ralph-simplification` | sonnet | Over-engineering, dead code, premature abstractions |
-| `ralph-documentation` | haiku | README / ADR / inline-doc updates |
-| `ralph-task` | sonnet | Implements one plan task (has `Skill` access for TDD, design, SEO, etc.) |
-| `ralph-fixer` | sonnet | Applies findings from one review round (has `Skill` access for debugging, polish, verification) |
+| Subagent | Model | Effort | maxTurns | Color | Role |
+|---|---|---|---|---|---|
+| `ralph-quality` | opus | **xhigh** | 15 | red | Security, multi-tenant safety, ZenStack policy gaps, TS correctness |
+| `ralph-implementation` | sonnet | — | 15 | blue | Plan-vs-code correctness |
+| `ralph-testing` | sonnet | — | 15 | green | Unit-test coverage and quality (no E2E) |
+| `ralph-simplification` | sonnet | — | 15 | yellow | Over-engineering, dead code, premature abstractions |
+| `ralph-documentation` | haiku | — | 15 | gray | README / ADR / inline-doc updates |
+| `ralph-task` | sonnet | — | 50 | purple | Implements one plan task; preloads `verification-before-completion`; Skill access for TDD/design/SEO/debugging |
+| `ralph-fixer` | sonnet | — | 50 | orange | Applies findings from one review round; preloads `verification-before-completion`; Skill access |
 
 Five review agents ported from `theomedis-physio/.ralphex/agents/` and tuned for T3 + ZenStack + Better Auth + shadcn. Override any subagent per project by dropping `.claude/agents/ralph-<name>.md` into the project — Claude Code merges plugin-bundled and project-local agents automatically.
 
