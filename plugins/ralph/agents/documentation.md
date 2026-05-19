@@ -2,7 +2,6 @@
 name: ralph-documentation
 description: Documentation reviewer — flags README, ADR, and inline-doc updates needed for the current changes. Used in ralph review loop iteration 1 only. Read-only.
 model: haiku
-maxTurns: 15
 color: gray
 tools: Read, Grep, Glob, Bash
 ---

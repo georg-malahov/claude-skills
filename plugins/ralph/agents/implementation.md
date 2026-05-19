@@ -2,7 +2,6 @@
 name: ralph-implementation
 description: Implementation-correctness reviewer — verifies code meets the plan's stated goals. Used in the ralph review loop on both comprehensive (iter 1) and critical (iter 2-5) passes. Read-only.
 model: sonnet
-maxTurns: 15
 color: blue
 tools: Read, Grep, Glob, Bash
 ---

@@ -3,7 +3,6 @@ name: ralph-quality
 description: Security, multi-tenant safety, and TS-correctness reviewer for T3 + ZenStack + Better Auth apps. Use during the ralph review loop (iteration 1 comprehensive + iterations 2-5 critical-only re-check). Read-only.
 model: opus
 effort: xhigh
-maxTurns: 15
 color: red
 tools: Read, Grep, Glob, Bash
 ---
