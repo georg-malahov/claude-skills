@@ -51,11 +51,12 @@ For each unchecked `[ ]` task in the plan, in order:
 
 1. Re-read the plan file (subagent modifies it each iteration).
 2. Find the first task with `[ ]` checkboxes.
-3. Dispatch an Agent (general-purpose, bypassPermissions) with:
+3. Dispatch the `ralph-task` subagent (`subagent_type: "ralph-task"`, sonnet — model and tools come from `agents/task.md` frontmatter) with:
    - The full plan file as context
    - The single task description as the target
-   - `prompts/task.md` (override chain) as the contract — contract gives the Agent 1 dispatch with internal iteration freedom
    - The project's CLAUDE.md
+   - The full contract text from `prompts/task.md` (override chain) appended to the prompt
+   The subagent's own system prompt is in `agents/task.md`; `prompts/task.md` is the contract detail to pass each invocation.
 4. Wait for completion. Re-read the plan. Check whether the task's `[ ]` boxes are now `[x]`.
 5. On boxes checked + commit present → advance.
 6. On boxes still unchecked OR `TASK_FAILED` signal: **one retry** with a fresh subagent for the same task (matches ralphex `task_retry_count=1`, cc-thingz `task_retries=1`).

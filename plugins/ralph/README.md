@@ -64,7 +64,21 @@ Three-tier override chain (first match wins):
 2. **Bundled:** `${CLAUDE_PLUGIN_ROOT}/agents,prompts/<name>.md` (this plugin)
 3. Fail loud — no embedded fallback beyond the bundled defaults.
 
-The five bundled review agents (`quality`, `implementation`, `testing`, `simplification`, `documentation`) are ported from the `theomedis-physio/.ralphex/agents/` set and tuned for the T3 + ZenStack + Better Auth + shadcn stack. Override any of them per project.
+Bundled subagents (registered as first-class Claude Code agents via plugin manifest, with `name` / `model` / `tools` in frontmatter):
+
+| Subagent | Model | Role |
+|---|---|---|
+| `ralph-quality` | opus | Security, multi-tenant safety, ZenStack policy gaps, TS correctness |
+| `ralph-implementation` | sonnet | Plan-vs-code correctness |
+| `ralph-testing` | sonnet | Unit-test coverage and quality (no E2E) |
+| `ralph-simplification` | sonnet | Over-engineering, dead code, premature abstractions |
+| `ralph-documentation` | haiku | README / ADR / inline-doc updates |
+| `ralph-task` | sonnet | Implements one plan task |
+| `ralph-fixer` | sonnet | Applies findings from one review round |
+
+Five review agents ported from `theomedis-physio/.ralphex/agents/` and tuned for T3 + ZenStack + Better Auth + shadcn. Override any subagent per project by dropping `.claude/agents/ralph-<name>.md` into the project — Claude Code merges plugin-bundled and project-local agents automatically.
+
+Model choices follow the theomedis pattern: opus for the high-stakes security review, haiku for cheap text work, sonnet for the balanced middle. Override per project by changing `model:` in the local agent file.
 
 ## Autonomous mode
 
