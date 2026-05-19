@@ -21,6 +21,18 @@
       "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram"]
     },
     {
+      "name": "ralph",
+      "description": "Native Claude-Code agentic loop: brainstorm → plan → execute → review → e2e → pr. Auto-routes single vs parallel-wave mode. Replaces the Docker-hosted ralphex flow; coexists with dev-workflow.",
+      "source": "./plugins/ralph",
+      "version": "0.1.0",
+      "author": {
+        "name": "Georg Malahov",
+        "email": "georg@malahov.io"
+      },
+      "category": "productivity",
+      "keywords": ["ralph", "agentic", "loop", "plan", "execute", "review", "tdd"]
+    },
+    {
       "name": "dev-workflow",
       "description": "Slash commands for orchestrated parallel ralphex plan execution, gated PR creation, test-first bug fixing, and visual preview sanity checks.",
       "source": "./plugins/dev-workflow",

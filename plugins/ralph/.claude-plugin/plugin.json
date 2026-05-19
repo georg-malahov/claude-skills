@@ -1,0 +1,12 @@
+{
+  "name": "ralph",
+  "version": "0.1.0",
+  "description": "Native Claude-Code agentic loop replacing ralphex: brainstorm → plan → execute → review → e2e, with auto-routed parallel/sequential modes and optional PR gating.",
+  "author": {
+    "name": "Georg Malahov",
+    "email": "georg@malahov.io"
+  },
+  "repository": "https://github.com/georg-malahov/claude-skills",
+  "license": "MIT",
+  "keywords": ["ralph", "agentic", "loop", "plan", "execute", "review", "tdd"]
+}
