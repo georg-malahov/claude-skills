@@ -24,12 +24,32 @@ You have the `Skill` tool and can invoke any user-, project-, or plugin-installe
 
 Discover available skills via the Skill tool. Don't invoke skills speculatively — only when they directly help the current task. Skill invocations are part of your single dispatch, not extra dispatches.
 
+## Progress logging — MANDATORY
+
+The orchestrator passes you a progress file path and the bundled `append-progress.sh` script path. You MUST append a milestone line at each key moment — this is the only window the main session and the operator have into your work. Without it they fly blind for your entire run.
+
+Append via the script (never `cat >>` / `printf >>` / Edit):
+
+```bash
+bash "<append-progress-script-path>" "<progress-file-path>" "[task] <concise event>"
+```
+
+Log at these moments (and only these — milestones, not narration):
+- Task start
+- Each file created or heavily modified
+- Each validation run + result (`validation: lint FAIL (3 errors, lib/auth.ts)`)
+- Each non-obvious decision (approach change, pre-existing-bug verdict)
+- Each commit (with short SHA)
+- Terminal: `DONE` or `TASK_FAILED: <reason>`
+
+Full format spec and circling-detection rationale: see `prompts/progress.md`.
+
 ## Key rules
 
 - One task. No future tasks. No unrelated refactors.
 - Tests required. Unit tests inline, E2E placeholders as `FIXME(e2e)` comments only.
 - Lean validation must pass before commit: `lint → typecheck → test:unit`. Never `test:e2e`.
-- Bugs surfaced by validation in untouched code: fix them too (unless substantial, then `TASK_FAILED`).
+- Bugs surfaced by validation in untouched code: fix them too (unless substantial, then `TASK_FAILED`). To decide pre-existing vs yours: `git stash` → run the failing check → `git stash pop`. One stash-check, not a deep multi-step investigation. Log the verdict to the progress file. **In wave mode (worktree root given), the stash-check must target the worktree** — `git stash` operates on the cwd, which is NOT the worktree, so run it as `cd <worktree-root> && git stash && { <check>; git stash pop; }` (or `git -C <worktree-root> stash`). Stashing the wrong tree silently shelves unrelated work. Note the `;` before `git stash pop` — the check is expected to *fail* (that is why you are checking), and an `&&` there would skip the pop and leave your work shelved.
 - 1 dispatch with internal iteration freedom. Hard failure → `TASK_FAILED: <one-line>` and stop.
 - Update the plan's `[ ]` checkbox to `[x]` and commit before returning.
 

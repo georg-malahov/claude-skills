@@ -133,7 +133,31 @@ This plugin is purely additive. `/orchestrate` (the ralphex-driven flow) keeps w
 | Review exit | all-clean OR HEAD-unchanged after fixer OR cap | ralphex HEAD short-circuit |
 | Per-E2E-test | 3 fix iterations | ralph-specific |
 
-Wave mode uses the same split as ralphex `--tasks-only`: per-wave plans run tasks-only (no review), the merge plan runs the full pipeline.
+Wave mode is single mode multiplied: the orchestrator runs one per-task loop per plan concurrently, each plan in its own git worktree. Same per-task `ralph-task` dispatch and fresh-context-per-task as single mode — within a plan tasks stay sequential, across plans they run in parallel. The orchestrator is the single dispatcher (every `ralph-task` is a leaf subagent — no nesting). Per-wave plans run tasks-only; the final merge plan runs the full pipeline including the review loop.
+
+## Execute is event-driven — the session stays free
+
+`/ralph execute` does not block the session for the whole run. It is an **event-driven orchestrator**: each invocation reconciles state, does one step, and ends its turn.
+
+- Each task is dispatched as a **background** subagent. The orchestrator then ends its turn → the session is free, you can ask "check progress" or "pause" or anything else.
+- When a background subagent completes, the Claude Code harness **automatically re-invokes** the orchestrator — no polling, no sleep. It reads the result, advances to the next task, ends its turn again.
+- The loop auto-advances without you typing "continue". On `TASK_FAILED` after a retry, it stops and asks you what to do.
+
+Durable state lives in the plan file (`[ ]`/`[x]`) and the session manifest — so any invocation, even after a crash, rebuilds full context from disk.
+
+## Progress files — runtime introspection
+
+Subagents run in isolated context windows; the main session only sees their final summary. To see what an agent is doing *mid-run* (and catch it circling), each run writes a progress file:
+
+```
+/tmp/ralph-progress-<plan-stem>.txt
+```
+
+Modeled on cc-thingz `planning/exec` — two bundled scripts (`scripts/init-progress.sh`, `scripts/append-progress.sh`) own the format. The orchestrator logs coarse milestones (`[orch]`, `[review]`, `[fixer-summary]`); the running task/fixer subagents log fine-grained milestones (`[task]`, `[fixer]`) so mid-task circling is visible.
+
+`/tmp` is deliberate: the progress file is throwaway telemetry, **not** resume state. Resume reads the plan checkboxes + session manifest. The progress file is never committed, never in `git status`. Check it any time with `tail -30 /tmp/ralph-progress-<plan-stem>.txt`.
+
+When you ask "check progress", the orchestrator reads the tail and explicitly flags circling signals: repeated `validation: X FAIL`, repeated `decision: revert`, or a long stale gap.
 
 ## Cloud deployment
 
