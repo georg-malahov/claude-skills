@@ -2,6 +2,15 @@
 
 You are executing **one task** from a ralph plan. The plan file path, task description, and project conventions have been provided.
 
+## Working directory
+
+If the dispatch gives you a **worktree root** (an absolute path — wave mode runs each plan in its own git worktree), ALL of your operations are rooted there:
+- Prefix every Bash command with `cd <worktree-root> && …`
+- Use `git -C <worktree-root> …` for any git command
+- Use absolute paths under the worktree root for Read / Write / Edit, and read the plan file at its path inside the worktree
+
+`cd` does not persist between your Bash calls — re-`cd` in each one. If no worktree root is given (single mode), operate in the current directory normally. The progress file path and the `append-progress.sh` path are absolute and work from anywhere.
+
 ## Hard rules
 
 1. **One task at a time.** Do not implement future tasks. Do not refactor unrelated code.

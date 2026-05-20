@@ -157,47 +157,73 @@ Otherwise ask via AskUserQuestion:
 
 ## WAVE MODE (W)
 
-> **⚠ Wave mode needs a design rework before use.** The original design had each per-plan background worker spawn `ralph-task` subagents — but **subagents cannot spawn subagents** (Claude Code constraint). The text below is the corrected interim design; treat wave mode as experimental until it has been tested end-to-end. Single mode is the validated path.
+Wave mode is single mode, multiplied. Same per-task `ralph-task` dispatch, same fresh context per task — the only difference is that the orchestrator runs **one task loop per active plan, concurrently**, and each plan lives in its own git worktree.
+
+**The orchestrator (this session) is the single dispatcher.** It spawns every `ralph-task` directly — they are all leaf subagents, no nesting. Parallelism comes from having N `ralph-task` agents in flight at once (one per plan), not from any agent spawning another.
+
+**Within a plan: sequential.** Tasks of one plan are usually dependent (task 2 builds on task 1), so the orchestrator keeps at most one `ralph-task` per plan in flight. **Across plans: parallel** — plan A's task 3, plan B's task 1, plan C's task 2 all run at the same time.
+
+### Worktree isolation — how parallel plans avoid clobbering each other
+
+Two `ralph-task` agents committing in the same working tree at the same time corrupts the git index. So each plan gets its own **git worktree** — a separate working directory with its own index and branch, exactly as ralphex isolated each plan. Single mode needs no worktree (one agent at a time, no contention); wave mode requires one per plan.
+
+The orchestrator creates them on the host before launching a wave:
+
+```bash
+git worktree add .ralph/worktrees/<plan-stem> -b ralph-<plan-stem>
+cp docs/plans/<plan-file>.md .ralph/worktrees/<plan-stem>/docs/plans/
+```
+
+A `ralph-task` subagent runs in the **main session's** cwd, not the worktree (subagents inherit the parent cwd; `cd` does not persist across their Bash calls). So each wave-mode dispatch tells the agent its **worktree root** as an absolute path, and the agent contract requires:
+- every Bash command prefixed with `cd <worktree-abs-path> && …`
+- `git -C <worktree-abs-path> …` for any git command
+- absolute paths under the worktree root for Read / Write / Edit
+
+The progress file (`/tmp/...`) and the `append-progress.sh` path are absolute and cwd-independent — they work unchanged from any worktree.
 
 ### W1 — Launch current wave
 
 For each plan in the current wave (from the manifest):
 
-1. Create a host-side worktree:
-   ```bash
-   git worktree add .ralph/worktrees/<plan-stem> -b ralph-<plan-stem>
-   ```
-2. Copy the plan file into the worktree:
-   ```bash
-   cp docs/plans/<plan-file>.md .ralph/worktrees/<plan-stem>/docs/plans/
-   ```
-3. Initialize a progress file for this plan: `/tmp/ralph-progress-<plan-stem>.txt` (flat `/tmp` namespace — no per-worktree path juggling).
+1. Create the worktree + copy the plan file in (commands above).
+2. Init the plan's progress file: `/tmp/ralph-progress-<plan-stem>.txt` (flat `/tmp` namespace — one place to read them all).
+3. Dispatch the plan's **first** `[ ]` task as a background `ralph-task` (`run_in_background: true`), with the dispatch prompt carrying the **worktree root absolute path** plus everything from S1 step 3.
+4. Record each plan's in-flight task id in the manifest's Execution Log.
 
-**Dispatch model (corrected):** the orchestrator (this session) is the *single* dispatcher. It does NOT spawn one "plan worker" per plan that then spawns `ralph-task` — that nesting is impossible. Instead the orchestrator drives all plans' task loops itself, interleaved:
+All N first-tasks launch together — that is the parallelism.
 
-- For each active plan, dispatch its next `[ ]` task as a background `ralph-task`, with the prompt instructing the agent that **all paths are rooted at the worktree absolute path** (subagents start in the main cwd and `cd` does not persist, so the agent must use absolute paths or `cd` at the start of each Bash call).
-- Multiple `ralph-task` dispatches are in flight at once — one per plan — giving real parallelism without nesting.
-- The orchestrator's RECONCILE handles completions from any plan and dispatches that plan's next task.
+### W-RECONCILE — multi-plan, runs at the top of every invocation
 
-Record task ids per plan in the manifest's Execution Log.
+Same as single-mode RECONCILE, extended across plans:
 
-### W2 — Status
+1. Re-read every active plan file.
+2. **A background subagent completed** → identify which plan it belonged to (its task id is recorded per-plan in the manifest) → run W2 verdict for *that plan only*; the other plans keep running untouched.
+3. User message → `pause` (stop all in-flight agents), `check progress` (W-Status), else answer + end turn.
+4. For any plan with no in-flight agent and `[ ]` tasks remaining → dispatch its next task (W1 step 3).
+5. When every plan in the wave has all tasks `[x]` → W3.
 
-On "check progress" / "status": read every plan's progress file (`/tmp/ralph-progress-<plan-stem>.txt`, one per plan) and summarize per plan. Flag circling per plan.
+### W2 — Per-plan task verdict
+
+Identical to S2, scoped to the completed plan: green → log + advance that plan's next task; failed → one retry; retry failed → surface to user (that plan pauses, others continue).
+
+### W-Status — on "check progress"
+
+Read every plan's `/tmp/ralph-progress-<plan-stem>.txt` and summarize per plan: current task, recent milestones, circling flags. One compact block per plan.
 
 ### W3 — Wave transition
 
-When all plans in the wave have all tasks `[x]`:
-- Any plan failed → ask user (fix and retry / skip / abort)
-- All green → merge wave branches into the parent branch:
+When all plans in the wave have every task `[x]`:
+- Any plan ended failed/skipped → ask the user (fix and retry / accept / abort).
+- All green → merge the wave's branches into the parent branch:
   ```bash
-  git merge ralph-<plan-stem-1> ralph-<plan-stem-2> ...
+  git merge ralph-<plan-stem-1> ralph-<plan-stem-2> …
   ```
-- Advance to the next wave (W1)
+  Resolve conflicts if any (parallel plans should be file-disjoint by design, but the merge is the safety net).
+- Advance to the next wave (back to W1).
 
 ### W4 — Merge wave
 
-The merge plan runs as a full **single-mode** loop (S1–S4) in its own worktree — tasks **and** the review loop. The git-diff-driven review covers the consolidated change surface; per-branch pre-merge review would produce false positives about missing wiring.
+The final merge plan runs as a full **single-mode** loop (S1–S4) in its own worktree — tasks **and** the review loop. The git-diff-driven review covers the consolidated change surface; per-branch pre-merge review would produce false positives about missing wiring.
 
 Per-wave plans run tasks-only; the merge plan runs the full pipeline.
 

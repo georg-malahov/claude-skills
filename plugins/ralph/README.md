@@ -133,7 +133,7 @@ This plugin is purely additive. `/orchestrate` (the ralphex-driven flow) keeps w
 | Review exit | all-clean OR HEAD-unchanged after fixer OR cap | ralphex HEAD short-circuit |
 | Per-E2E-test | 3 fix iterations | ralph-specific |
 
-Wave mode uses the same split as ralphex `--tasks-only`: per-wave plans run tasks-only (no review), the merge plan runs the full pipeline.
+Wave mode is single mode multiplied: the orchestrator runs one per-task loop per plan concurrently, each plan in its own git worktree. Same per-task `ralph-task` dispatch and fresh-context-per-task as single mode — within a plan tasks stay sequential, across plans they run in parallel. The orchestrator is the single dispatcher (every `ralph-task` is a leaf subagent — no nesting). Per-wave plans run tasks-only; the final merge plan runs the full pipeline including the review loop.
 
 ## Execute is event-driven — the session stays free
 
