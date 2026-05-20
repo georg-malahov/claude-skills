@@ -38,7 +38,7 @@ If multiple manifests exist with non-`completed` state, ask the user which to ex
 
 ## Session manifest
 
-Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add a custom frontmatter line `progress: /tmp/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists.
+Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add two custom frontmatter lines: `progress: /tmp/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists, and `dispatches: 0` — the durable count of `ralph-task` dispatches that the RECONCILE 50-cap reads (incremented on every dispatch, so the cap holds across a resume).
 
 Durable resume state is the plan checkboxes + (wave) the manifest's `Current State`. Checkpoint the session manifest after each task verdict, wave transition, and review iteration.
 
@@ -67,14 +67,19 @@ On an existing file (resume), the script appends a `--- Resumed ---` marker inst
 
 ### RECONCILE — run at the top of every invocation
 
+Process events in this order — a user message and a subagent completion can land in the same invocation, so the user message is handled **first** and does not consume a pending completion:
+
 1. **Re-read the plan file** (subagents modify it).
-2. **Check for a just-completed background subagent** whose result you have not yet processed (its task id is recorded in the session manifest as `running`):
+2. **If the user sent a message** → handle it first:
+   - `pause` / `stop` → **S-Pause**. Stop here.
+   - `check progress` / `status` → **S-Status**, then fall through to step 3 (a completion may also be pending this invocation).
+   - anything else → answer it. If a subagent also completed this invocation (step 3 applies), fall through; otherwise end the turn (agents keep running).
+3. **Check for a just-completed background subagent** whose result you have not yet processed (its task id is recorded in the session manifest as `running`):
    - If found → go to **S2 — Task verdict**.
-3. **If the user sent a message** → handle it: `pause` → S-Pause; `check progress` / `status` → S-Status; anything else → answer it, then end turn (agents keep running).
 4. **If no subagent is running and `[ ]` tasks remain** → go to **S1 — Dispatch**.
 5. **If no subagent is running and no `[ ]` tasks remain** → go to **S3 — Review loop**.
 
-Outer safety cap: **50 dispatches** total. If exceeded, stop and surface — the plan is too large or something is stuck.
+Outer safety cap: **50 dispatches** total. The count is durable — the orchestrator increments `Dispatches:` in the session manifest on every `ralph-task` dispatch (S1) and reads it back here, so the cap survives a resume. If `Dispatches:` ≥ 50, stop and surface — the plan is too large or something is stuck.
 
 ### S1 — Dispatch next task
 
@@ -84,7 +89,7 @@ Outer safety cap: **50 dispatches** total. If exceeded, stop and surface — the
    - `subagent_type: "ralph-task"`, `run_in_background: true`
    - Prompt includes: the full plan file, the single task as the target, the project CLAUDE.md, the contract text from `prompts/task.md`, **the progress file path**, and **the absolute path of `${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh`** (resolve `${CLAUDE_PLUGIN_ROOT}` to its real path before passing — the subagent does not inherit the variable).
 4. Log: `append-progress.sh <progress-file> "[orch] dispatched ralph-task (sonnet) — Task N: <title>"`.
-5. Record the task id as `running` in the session manifest.
+5. Record the task id as `running` in the session manifest and **increment its `Dispatches:` counter** (the durable dispatch count the RECONCILE cap reads).
 6. **End the turn** with a status line:
    > Task N/M dispatched in background. Session is free — ask "check progress" anytime. I'll continue automatically when it completes.
 
@@ -114,7 +119,7 @@ Do NOT wait. Do NOT poll. The harness re-invokes you on completion.
 
 ### S-Pause — on "pause" / "stop"
 
-1. Stop the running background subagent (`TaskStop` with its id).
+1. Stop the running background subagent with `TaskStop` (its id is in the manifest; if `TaskStop` is not loaded, `ToolSearch` for it first).
 2. `append-progress.sh <progress-file> "[orch] paused by user at Task N"`.
 3. Set the session manifest `status` checkpoint to paused-at-task-N.
 4. Confirm: "Paused at Task N. Resume with `/ralph execute resume`."
@@ -167,12 +172,19 @@ Wave mode is single mode, multiplied. Same per-task `ralph-task` dispatch, same 
 
 Two `ralph-task` agents committing in the same working tree at the same time corrupts the git index. So each plan gets its own **git worktree** — a separate working directory with its own index and branch, exactly as ralphex isolated each plan. Single mode needs no worktree (one agent at a time, no contention); wave mode requires one per plan.
 
-The orchestrator creates them on the host before launching a wave:
+Worktrees live under `.ralph/worktrees/` **inside the target repo**. Git does not auto-ignore a worktree directory nested in its own repo — it shows as untracked and would trip the Step 1 `git status` clean check (and risk being committed). So before creating any worktree the orchestrator ensures the target repo ignores it:
+
+```bash
+grep -qxF '.ralph/' .gitignore 2>/dev/null || { echo '.ralph/' >> .gitignore && git add .gitignore && git commit -m "chore: ignore .ralph worktree dir"; }
+```
+
+Then it creates one worktree per plan on the host:
 
 ```bash
 git worktree add .ralph/worktrees/<plan-stem> -b ralph-<plan-stem>
-cp docs/plans/<plan-file>.md .ralph/worktrees/<plan-stem>/docs/plans/
 ```
+
+The plan files are committed on the base branch by `/ralph plan` (commit them before launching the wave if not), so each worktree — branched from HEAD — already contains them; no copy is needed. Only `cp docs/plans/<plan-file>.md .ralph/worktrees/<plan-stem>/docs/plans/` if a plan file is still uncommitted.
 
 A `ralph-task` subagent runs in the **main session's** cwd, not the worktree (subagents inherit the parent cwd; `cd` does not persist across their Bash calls). So each wave-mode dispatch tells the agent its **worktree root** as an absolute path, and the agent contract requires:
 - every Bash command prefixed with `cd <worktree-abs-path> && …`
@@ -183,9 +195,9 @@ The progress file (`/tmp/...`) and the `append-progress.sh` path are absolute an
 
 ### W1 — Launch current wave
 
-For each plan in the current wave (from the manifest):
+Ensure `.ralph/` is gitignored once (command above). Then for each plan in the current wave (from the manifest):
 
-1. Create the worktree + copy the plan file in (commands above).
+1. Create the worktree (command above). The worktree already has the plan file via the base-branch commit — only `cp` it in if uncommitted.
 2. Init the plan's progress file: `/tmp/ralph-progress-<plan-stem>.txt` (flat `/tmp` namespace — one place to read them all).
 3. Dispatch the plan's **first** `[ ]` task as a background `ralph-task` (`run_in_background: true`), with the dispatch prompt carrying the **worktree root absolute path** plus everything from S1 step 3.
 4. Record each plan's in-flight task id in the manifest's Execution Log.
@@ -194,12 +206,12 @@ All N first-tasks launch together — that is the parallelism.
 
 ### W-RECONCILE — multi-plan, runs at the top of every invocation
 
-Same as single-mode RECONCILE, extended across plans:
+Same as single-mode RECONCILE, extended across plans — user message handled first so it is never dropped by a concurrent completion:
 
 1. Re-read every active plan file.
-2. **A background subagent completed** → identify which plan it belonged to (its task id is recorded per-plan in the manifest) → run W2 verdict for *that plan only*; the other plans keep running untouched.
-3. User message → `pause` (stop all in-flight agents), `check progress` (W-Status), else answer + end turn.
-4. For any plan with no in-flight agent and `[ ]` tasks remaining → dispatch its next task (W1 step 3).
+2. **If the user sent a message** → handle it first: `pause` → stop all in-flight agents (S-Pause across plans), done; `check progress` → W-Status, then fall through; anything else → answer it, fall through if a completion is also pending else end turn.
+3. **A background subagent completed** → identify which plan it belonged to (its task id is recorded per-plan in the manifest) → run W2 verdict for *that plan only*; the other plans keep running untouched.
+4. For any plan with no in-flight agent and `[ ]` tasks remaining → dispatch its next task (W1 step 3, incrementing `Dispatches:` — the 50-cap counts dispatches across all plans).
 5. When every plan in the wave has all tasks `[x]` → W3.
 
 ### W2 — Per-plan task verdict
@@ -214,11 +226,11 @@ Read every plan's `/tmp/ralph-progress-<plan-stem>.txt` and summarize per plan: 
 
 When all plans in the wave have every task `[x]`:
 - Any plan ended failed/skipped → ask the user (fix and retry / accept / abort).
-- All green → merge the wave's branches into the parent branch:
+- All green → merge the wave's branches into the parent branch **one at a time** (sequential two-way merges, NOT an octopus merge — a single `git merge A B C` octopus aborts wholesale on any conflict and leaves no conflicted index to resolve):
   ```bash
-  git merge ralph-<plan-stem-1> ralph-<plan-stem-2> …
+  for b in ralph-<plan-stem-1> ralph-<plan-stem-2> …; do git merge --no-ff "$b" || break; done
   ```
-  Resolve conflicts if any (parallel plans should be file-disjoint by design, but the merge is the safety net).
+  Parallel plans should be file-disjoint by design. If a merge does conflict, the loop stops on that branch — resolve the conflict and commit before merging the rest.
 - Advance to the next wave (back to W1).
 
 ### W4 — Merge wave
