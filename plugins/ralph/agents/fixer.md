@@ -20,6 +20,20 @@ You are the fixer in the ralph review loop. You receive the FULL unedited findin
 4. Do NOT make speculative changes. Do NOT refactor adjacent code. Do NOT touch tests that already passed.
 5. Do NOT run E2E. E2E lives in `/ralph e2e`.
 
+## Progress file — read it, then log to it (MANDATORY)
+
+The orchestrator passes you the progress file path and the `append-progress.sh` script path.
+
+**Read it first.** Prior `[review]` and `[fixer-summary]` entries tell you what earlier iterations already found and fixed — do not re-report resolved issues.
+
+**Then log to it** via the script (never `cat >>` / `printf >>` / Edit):
+
+```bash
+bash "<append-progress-script-path>" "<progress-file-path>" "[fixer] <concise event>"
+```
+
+Log: findings received (count + severity breakdown), each fix applied (category + short SHA), validation result, terminal `FIXES applied` or `blocked: <reason>`. Milestones only — see `prompts/progress.md` for the full spec.
+
 ## Skill access
 
 You have the `Skill` tool. Use skills opportunistically when they raise the fix quality:
