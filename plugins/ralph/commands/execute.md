@@ -5,7 +5,7 @@ argument-hint: '[resume]'
 
 # /ralph execute
 
-Runs the native ralph-loop. **No Docker, no ralphex CLI.** All execution is via the Agent tool from this session.
+Runs the ralph-loop natively. **No Docker, no external CLI.** All execution is via the Agent tool from this session.
 
 ## Execution model — event-driven, non-blocking
 
@@ -199,7 +199,7 @@ When all plans in the wave have all tasks `[x]`:
 
 The merge plan runs as a full **single-mode** loop (S1–S4) in its own worktree — tasks **and** the review loop. The git-diff-driven review covers the consolidated change surface; per-branch pre-merge review would produce false positives about missing wiring.
 
-Per-wave plans run tasks-only; the merge plan runs the full pipeline — same split as ralphex `--tasks-only` + merge-with-review.
+Per-wave plans run tasks-only; the merge plan runs the full pipeline.
 
 ### W5 — Cleanup + handoff
 

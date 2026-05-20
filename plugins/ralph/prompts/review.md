@@ -1,6 +1,6 @@
 # Review loop — unified
 
-Single loop, two phases inside it. Pattern from cc-thingz `planning/exec` + ralphex `runClaudeReviewLoop` combined.
+Single loop, two phases inside it.
 
 ## Loop structure
 

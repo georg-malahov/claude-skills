@@ -52,5 +52,3 @@ You are executing **one task** from a ralph plan. The plan file path, task descr
 - 1 implementation dispatch
 - 1 retry on `TASK_FAILED` (decided by orchestrator, not you)
 - After 2 hard failures: orchestrator surfaces to user. No third attempt without user intervention.
-
-This matches both ralphex (`task_retry_count = 1`) and cc-thingz (`task_retries = 1`).

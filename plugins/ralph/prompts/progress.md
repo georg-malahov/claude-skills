@@ -1,8 +1,8 @@
 # Progress file
 
-Modeled on cc-thingz `planning/exec` progress files. The progress file accumulates context across every phase of a run so the orchestrator, the review fixer, and **you the operator** can see what happened — without diving into any subagent's isolated context.
+The progress file accumulates context across every phase of a run so the orchestrator, the review fixer, and **you the operator** can see what happened — without diving into any subagent's isolated context.
 
-## Location — throwaway, like cc-thingz
+## Location — throwaway
 
 ```
 /tmp/ralph-progress-<plan-stem>.txt
@@ -16,7 +16,7 @@ Wave mode: one `/tmp/ralph-progress-<plan-stem>.txt` per plan.
 
 ## Scripts — always use them, never `cat >>`
 
-Two bundled scripts under `${CLAUDE_PLUGIN_ROOT}/scripts/` (copied from cc-thingz):
+Two bundled scripts under `${CLAUDE_PLUGIN_ROOT}/scripts/`:
 
 - `init-progress.sh <file> <plan-path> <branch>` — writes the header. On an existing file (resume) it appends a `--- Resumed ---` marker instead of clobbering.
 - `append-progress.sh <file> [message]` — appends one timestamped line; with no message argument it appends multi-line content from stdin.
@@ -44,7 +44,7 @@ Completed: 2026-05-20 17:12:40
 
 ## Who writes what
 
-cc-thingz lets only the parent write. Ralph keeps that **plus** lets the running task/fixer subagent write its own milestones — because the parent cannot see inside a running subagent, and mid-task circling is exactly what we need visible.
+Both the orchestrator and the running task/fixer subagent write to the file. The subagent writing its own milestones is essential — the orchestrator cannot see inside a running subagent, and mid-task circling is exactly what we need visible.
 
 **Orchestrator (`[orch]`)** — coarse milestones, written from the main session:
 - on dispatch: `[orch] dispatched ralph-task (sonnet) — Task N: <title>`
