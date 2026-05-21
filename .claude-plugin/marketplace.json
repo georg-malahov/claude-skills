@@ -24,7 +24,7 @@
       "name": "ralph",
       "description": "Native Claude-Code agentic loop: brainstorm → plan → execute → review → e2e → pr. Auto-routes single vs parallel-wave mode. Replaces the Docker-hosted ralphex flow; coexists with dev-workflow.",
       "source": "./plugins/ralph",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "Georg Malahov",
         "email": "georg@malahov.io"

@@ -42,6 +42,7 @@ If the dispatch gives you a **worktree root** (an absolute path — wave mode ru
    - `lint → typecheck → test:unit` (project-equivalent — see CLAUDE.md "Run validation")
    - Fail-fast. Fix. Re-run.
    - Never `test:e2e` here.
+   - **Never start a dev server** (`next dev`, `bun dev`, `bun run dx dev`, etc.). Lean validation reads source directly — it needs no running app. A dev server only watches your edits and burns compute recompiling output nobody reads, and its load can make timing-sensitive unit tests flake. If one is already running in your environment, leave it — just never start one yourself, and never wait on `localhost`.
 
 6. **One commit per task.** Subject: `<plan-stem>: <task title>`. Body lists files touched.
 
