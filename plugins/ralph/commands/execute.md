@@ -50,6 +50,18 @@ Durable resume state is the plan checkboxes + (wave) the manifest's `Current Sta
 
 No image build check — there is no image.
 
+### No dev server during execution
+
+`/ralph execute` validates with **lean validation only** — `lint → typecheck → test:unit`. None of those need a running app: `tsc` and Vitest read source files directly, they do not hit `localhost:3000` and do not read `.next/`. So the loop needs no dev server, and one must not be running for it.
+
+A `next dev` (Turbopack) process watching the worktree during a ralph run is pure waste — and in wave mode, actively harmful:
+
+- **Recompile storm.** Every file the task agent edits triggers Turbopack to recompile + HMR. In wave mode, N worktrees each running `next dev` = N watchers all churning on every edit, for output nobody consumes.
+- **Resource contention.** Those recompiles compete for CPU/RAM with the agent's own `tsc` + Vitest runs — slower validation, and timing-sensitive unit tests can flake.
+- It buys nothing: E2E (the only phase that needs the app actually serving) is deferred to `/ralph e2e`, which starts and stops its own server.
+
+So: **do not start a dev server, and do not let the environment start one for you.** If the project's devcontainer / `compose` / `bun run dx` wrapper auto-starts `next dev` as its entrypoint, run ralph against a container variant whose entrypoint does *not*, or stop the dev server before the loop begins. The task contract (`prompts/task.md`) forbids agents from starting one. (`.next/` is gitignored by every Next.js scaffold, so a stray dev server does not pollute commits — the cost is wasted compute and flakiness, not a dirty tree. Confirm `.next/` is in `.gitignore` if in doubt.)
+
 **Initialize the progress file** with the bundled script (`prompts/progress.md` has the full spec):
 
 ```bash
@@ -60,6 +72,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/init-progress.sh" \
 ```
 
 On an existing file (resume), the script appends a `--- Resumed ---` marker instead of clobbering. All later writes — orchestrator and subagents — go through `${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh`. Never `cat >>` the progress file directly. The progress file is throwaway telemetry in `/tmp`; it is not committed and not the resume state.
+
+**Immediately after init, log the plugin version** as the first entry so the progress file is self-identifying (read `version` from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh" /tmp/ralph-progress-<plan-stem>.txt "[orch] ralph v<version> — execute <single|wave>"
+```
+
+In wave mode, do this for each plan's progress file as W1 inits it.
 
 ---
 

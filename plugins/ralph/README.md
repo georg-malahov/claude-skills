@@ -145,6 +145,12 @@ Wave mode is single mode multiplied: the orchestrator runs one per-task loop per
 
 Durable state lives in the plan file (`[ ]`/`[x]`) and the session manifest — so any invocation, even after a crash, rebuilds full context from disk.
 
+Every `/ralph` run prints a `ralph v<version> — <subcommand>` banner, and `execute` writes that version as the first line of every progress file — so you can always tell which plugin version a session or a run is on (plugin files load once at session start; a session keeps its loaded version even after the marketplace updates).
+
+## No dev server during execution
+
+`/ralph execute` only runs lean validation (`lint → typecheck → test:unit`) — none of which need a running app. A `next dev` / Turbopack watcher during a run is pure waste: it recompiles on every agent edit (× N worktrees in wave mode) for output nobody consumes, and competes with the agent's own `tsc`/Vitest. Don't start one; if the project's devcontainer auto-starts `next dev`, run ralph against an entrypoint that doesn't. E2E — the only phase that needs the app serving — is deferred to `/ralph e2e`, which manages its own server.
+
 ## Progress files — runtime introspection
 
 Subagents run in isolated context windows; the main session only sees their final summary. To see what an agent is doing *mid-run* (and catch it circling), each run writes a progress file:

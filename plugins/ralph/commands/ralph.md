@@ -7,6 +7,18 @@ argument-hint: '<subcommand> [args]   (brainstorm | plan | execute | review | e2
 
 Single entry point for the full ralph workflow. Parse `$ARGUMENTS`: first token decides the subcommand. Remaining tokens are forwarded.
 
+## Version banner — print first, every run
+
+Before routing, read `version` from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json` and print one line so the run is self-identifying:
+
+```
+ralph v<version> — <subcommand>
+```
+
+`bash -c 'grep -m1 '"'"'"version"'"'"' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"'` works in one call. This matters because plugin files are loaded once at session start — a session that loaded an older plugin keeps running it even after the marketplace is updated, and the version is the only reliable way to tell which behavior is live. If `${CLAUDE_PLUGIN_ROOT}` is unset, say so explicitly: that means ralph is not running as an installed plugin (loose files), which is itself worth surfacing.
+
+`/ralph execute` additionally writes the version as the first logged line of every progress file (see `commands/execute.md` Step 1), so progress files are self-identifying too.
+
 ## Subcommands
 
 | Subcommand | File | Purpose |
