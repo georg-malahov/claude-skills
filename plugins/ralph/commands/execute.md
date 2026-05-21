@@ -16,7 +16,7 @@ It gets invoked three ways:
 2. A background subagent completes — the harness **automatically re-invokes** the orchestrator (no polling, no sleep).
 3. You send a message while agents run (e.g. "check progress", "pause").
 
-**On every invocation, the orchestrator runs the RECONCILE procedure** (below), does one step, ends the turn. Durable state lives in two files, not in the conversation: the plan file (`[ ]`/`[x]` boxes) and the session manifest (checkpoint log). The progress file (`/tmp/ralph-progress-<plan-stem>.txt`) is live telemetry — useful while the run is in flight, not relied on for resume. Any invocation can rebuild full context from the plan + manifest.
+**On every invocation, the orchestrator runs the RECONCILE procedure** (below), does one step, ends the turn. Durable state lives in two files, not in the conversation: the plan file (`[ ]`/`[x]` boxes) and the session manifest (checkpoint log). The progress file (`${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt`) is live telemetry — useful while the run is in flight, not relied on for resume. Any invocation can rebuild full context from the plan + manifest.
 
 ## Step 0 — Mode detection
 
@@ -38,7 +38,7 @@ If multiple manifests exist with non-`completed` state, ask the user which to ex
 
 ## Session manifest
 
-Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add two custom frontmatter lines: `progress: /tmp/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists, and `dispatches: 0` — the durable count of `ralph-task` dispatches that the RECONCILE 50-cap reads (incremented on every dispatch, so the cap holds across a resume).
+Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add two custom frontmatter lines: `progress: ${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists, and `dispatches: 0` — the durable count of `ralph-task` dispatches that the RECONCILE 50-cap reads (incremented on every dispatch, so the cap holds across a resume).
 
 Durable resume state is the plan checkboxes + (wave) the manifest's `Current State`. Checkpoint the session manifest after each task verdict, wave transition, and review iteration.
 
@@ -66,17 +66,17 @@ So: **do not start a dev server, and do not let the environment start one for yo
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/init-progress.sh" \
-  /tmp/ralph-progress-<plan-stem>.txt \
+  "${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt" \
   docs/plans/<plan-file>.md \
   "$(git branch --show-current)"
 ```
 
-On an existing file (resume), the script appends a `--- Resumed ---` marker instead of clobbering. All later writes — orchestrator and subagents — go through `${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh`. Never `cat >>` the progress file directly. The progress file is throwaway telemetry in `/tmp`; it is not committed and not the resume state.
+On an existing file (resume), the script appends a `--- Resumed ---` marker instead of clobbering. All later writes — orchestrator and subagents — go through `${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh`. Never `cat >>` the progress file directly. The progress file is throwaway telemetry in the temp dir (`${TMPDIR:-/tmp}` — macOS keeps `$TMPDIR` private per-user; see `prompts/progress.md`); it is not committed and not the resume state.
 
 **Immediately after init, log the plugin version** as the first entry so the progress file is self-identifying (read `version` from `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh" /tmp/ralph-progress-<plan-stem>.txt "[orch] ralph v<version> — execute <single|wave>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh" "${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt" "[orch] ralph v<version> — execute <single|wave>"
 ```
 
 In wave mode, do this for each plan's progress file as W1 inits it.
@@ -131,7 +131,7 @@ Do NOT wait. Do NOT poll. The harness re-invokes you on completion.
 
 ### S-Status — on "check progress"
 
-1. Read the tail (~30 lines) of `/tmp/ralph-progress-<plan-stem>.txt`.
+1. Read the tail (~30 lines) of `${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt`.
 2. Summarize: current task, recent milestones, last timestamp.
 3. **Flag circling explicitly** (per `prompts/progress.md`): same `validation: X FAIL` 3+ times, repeated `decision: revert`, or a long stale gap with no `DONE`.
 4. If circling is detected, proactively offer: "this task looks stuck — want to pause and edit the plan?"
@@ -220,7 +220,7 @@ The progress file (`/tmp/...`) and the `append-progress.sh` path are absolute an
 Ensure `.ralph/` is gitignored once (command above). Then for each plan in the current wave (from the manifest):
 
 1. Create the worktree (command above). The worktree already has the plan file via the base-branch commit — only `cp` it in if uncommitted.
-2. Init the plan's progress file: `/tmp/ralph-progress-<plan-stem>.txt` (flat `/tmp` namespace — one place to read them all).
+2. Init the plan's progress file: `${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` (flat temp-dir namespace — one place to read them all).
 3. Dispatch the plan's **first** `[ ]` task as a background `ralph-task` (`run_in_background: true`), with the dispatch prompt carrying the **worktree root absolute path** plus everything from S1 step 3.
 4. Record each plan's in-flight task id in the manifest's Execution Log.
 
@@ -242,7 +242,7 @@ Identical to S2, scoped to the completed plan: green → log + advance that plan
 
 ### W-Status — on "check progress"
 
-Read every plan's `/tmp/ralph-progress-<plan-stem>.txt` and summarize per plan: current task, recent milestones, circling flags. One compact block per plan.
+Read every plan's `${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` and summarize per plan: current task, recent milestones, circling flags. One compact block per plan.
 
 ### W3 — Wave transition
 
@@ -270,4 +270,4 @@ Per-wave plans run tasks-only; the merge plan runs the full pipeline.
 
 ## Resume
 
-`/ralph execute resume` — read the manifest + plan checkboxes (the durable resume state), recreate any removed worktrees from their branches, re-init the progress file (the script appends a `--- Resumed ---` marker), and re-enter RECONCILE. Because resume state lives in the plan + manifest, resume works even if the old `/tmp` progress file is gone.
+`/ralph execute resume` — read the manifest + plan checkboxes (the durable resume state), recreate any removed worktrees from their branches, re-init the progress file (the script appends a `--- Resumed ---` marker), and re-enter RECONCILE. Because resume state lives in the plan + manifest, resume works even if the old progress file is gone.

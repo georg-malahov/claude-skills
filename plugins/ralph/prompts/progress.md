@@ -5,14 +5,16 @@ The progress file accumulates context across every phase of a run so the orchest
 ## Location — throwaway
 
 ```
-/tmp/ralph-progress-<plan-stem>.txt
+${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt
 ```
+
+Use `${TMPDIR:-/tmp}`, not raw `/tmp`. On macOS `$TMPDIR` is a private, per-user directory (e.g. `/var/folders/.../T/`); raw `/tmp` is world-readable. On Linux `$TMPDIR` is usually unset and the expression falls back to `/tmp`. Always write the literal `${TMPDIR:-/tmp}` in commands so the shell resolves it per host — never hardcode either branch.
 
 The progress file is **live runtime telemetry**, not resume state. Its only job is answering "is the run healthy right now / is the agent circling?" while the run is in progress. Once the run ends its value is gone.
 
-Durable resume state lives elsewhere — the plan file's `[ ]`/`[x]` checkboxes and the session manifest's checkpoint log. `/ralph execute resume` reads those, never a stale progress file. So the progress file does not need to survive a reboot and does not belong in the repo: `/tmp` keeps it out of `git status`, needs no `.gitignore`, and gives wave mode a flat namespace (`/tmp/ralph-progress-<plan-a>.txt`, `/tmp/ralph-progress-<plan-b>.txt`) with no per-worktree `.scratch/` juggling.
+Durable resume state lives elsewhere — the plan file's `[ ]`/`[x]` checkboxes and the session manifest's checkpoint log. `/ralph execute resume` reads those, never a stale progress file. So the progress file does not need to survive a reboot and does not belong in the repo: a temp dir keeps it out of `git status`, needs no `.gitignore`, and gives wave mode a flat namespace (`${TMPDIR:-/tmp}/ralph-progress-<plan-a>.txt`, `${TMPDIR:-/tmp}/ralph-progress-<plan-b>.txt`) with no per-worktree `.scratch/` juggling.
 
-Wave mode: one `/tmp/ralph-progress-<plan-stem>.txt` per plan.
+Wave mode: one `${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` per plan.
 
 ## Scripts — always use them, never `cat >>`
 
@@ -88,7 +90,7 @@ Flag these proactively — do not just relay raw lines.
 Any time, independent of the orchestrator:
 
 ```bash
-tail -30 /tmp/ralph-progress-<plan-stem>.txt
+tail -30 "${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt"
 ```
 
 That answers "what is the agent doing right now, and is it fine?" without entering any subagent's context.

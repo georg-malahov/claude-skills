@@ -156,12 +156,12 @@ Every `/ralph` run prints a `ralph v<version> — <subcommand>` banner, and `exe
 Subagents run in isolated context windows; the main session only sees their final summary. To see what an agent is doing *mid-run* (and catch it circling), each run writes a progress file:
 
 ```
-/tmp/ralph-progress-<plan-stem>.txt
+${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt
 ```
 
 Modeled on cc-thingz `planning/exec` — two bundled scripts (`scripts/init-progress.sh`, `scripts/append-progress.sh`) own the format. The orchestrator logs coarse milestones (`[orch]`, `[review]`, `[fixer-summary]`); the running task/fixer subagents log fine-grained milestones (`[task]`, `[fixer]`) so mid-task circling is visible.
 
-`/tmp` is deliberate: the progress file is throwaway telemetry, **not** resume state. Resume reads the plan checkboxes + session manifest. The progress file is never committed, never in `git status`. Check it any time with `tail -30 /tmp/ralph-progress-<plan-stem>.txt`.
+A temp dir is deliberate: the progress file is throwaway telemetry, **not** resume state. Resume reads the plan checkboxes + session manifest. The progress file is never committed, never in `git status`. `${TMPDIR:-/tmp}` resolves to a private per-user temp dir on macOS and `/tmp` on Linux — check it any time with `tail -30 "${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt"`.
 
 When you ask "check progress", the orchestrator reads the tail and explicitly flags circling signals: repeated `validation: X FAIL`, repeated `decision: revert`, or a long stale gap.
 
