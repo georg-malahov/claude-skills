@@ -131,8 +131,8 @@ Manifests live in `.scratch/` and accumulate. Periodically (no automated trigger
 
 - **Subcommands are independent.** Each one reuses prior step output if present, runs cleanly from scratch otherwise. See each subcommand's "standalone fallback" section.
 - **Surfaced bugs are owned.** If validation (lean or E2E) surfaces a bug in code outside the current change, fix it. Exception: if the fix is substantial (new design decision, >30 lines, schema migration), surface to user instead of silently scoping in.
-- **Never run E2E in the main loop.** E2E only lives in `/ralph e2e`.
-- **Lean validation** = `lint → typecheck → test:unit`. Full validation (adds `test:e2e`) only runs inside `/ralph e2e` and inside `pr` when hardening mode is selected.
+- **E2E is capability-gated and mandatory when available — no mode menu.** The `/ralph execute` environment probe (Step 1) detects whether the project can run E2E. If it can: per-task dev-mode E2E (single mode) **and** a full prod-build gate after the review loop, both mandatory. If it can't (`e2e: unsupported`): lean-only, automatically. See `commands/execute.md` → "Environment & capability probe".
+- **Lean validation** = `lint → typecheck → test:unit`, run through the probed `run_prefix` (empty on host, `bun run dx` in-container). Full E2E (`test:e2e`) runs inside `/ralph e2e`, inside `pr` hardened mode, and — whenever E2E is available — as the mandatory post-review gate (S3.5) in `/ralph execute`.
 - **Never auto-create a PR** unless the user opted in via the autonomous-mode phrase (rule 2).
 - **Three-tier override chain** for agents and prompts: `.claude/ralph/{agents,prompts}/<name>.md` (project) → `${CLAUDE_PLUGIN_ROOT}/agents,prompts/<name>.md` (bundled) → fail loud.
 - Coexists with `/orchestrate` and `/create-pr` — do not call them; ralph is a parallel track.

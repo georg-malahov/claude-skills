@@ -53,7 +53,10 @@ Across `/ralph execute`, the review loop, and `/ralph e2e`: if validation surfac
 
 ## What's deliberately out of the main loop
 
-- **E2E execution.** During `execute`, user-visible behavior gets a `test.skip` + `FIXME(e2e): <scenario>` placeholder in `tests/e2e/`. `/ralph e2e` consumes these later, after the UI has settled via `/ralph review`.
+- **E2E execution — capability-gated, mandatory when available.** `/ralph execute` Step 1 runs an environment probe; there is **no mode menu**:
+  - **E2E runnable (`dev+prod`)**: each task authors + runs its own E2E spec against a warm dev server (single mode; green required to finish), and a full prod-build suite runs as a mandatory gate after the review loop.
+  - **E2E exists but no dev path (`prod-only`)**: no per-task E2E; the full prod gate still runs after review.
+  - **E2E not runnable (`unsupported`)**: lean-only automatically — user-visible behavior gets a `test.skip` + `FIXME(e2e): <scenario>` placeholder in `tests/e2e/`, which `/ralph e2e` consumes later.
 - **Codex / external review tools.** Can be reintroduced as additional reviewer agents under `agents/` if needed.
 - **Docker containers, image rebuilds, host-side dep dances.** Not needed in the native flow.
 
@@ -147,9 +150,15 @@ Durable state lives in the plan file (`[ ]`/`[x]`) and the session manifest — 
 
 Every `/ralph` run prints a `ralph v<version> — <subcommand>` banner, and `execute` writes that version as the first line of every progress file — so you can always tell which plugin version a session or a run is on (plugin files load once at session start; a session keeps its loaded version even after the marketplace updates).
 
-## No dev server during execution
+## Environment probe + capability-driven dev server
 
-`/ralph execute` only runs lean validation (`lint → typecheck → test:unit`) — none of which need a running app. A `next dev` / Turbopack watcher during a run is pure waste: it recompiles on every agent edit (× N worktrees in wave mode) for output nobody consumes, and competes with the agent's own `tsc`/Vitest. Don't start one; if the project's devcontainer auto-starts `next dev`, run ralph against an entrypoint that doesn't. E2E — the only phase that needs the app serving — is deferred to `/ralph e2e`, which manages its own server.
+`/ralph execute` Step 1 runs a **hardened environment probe** that determines how the project runs and what can actually run — then verifies by probing, because a fresh git worktree has no `node_modules`. It resolves:
+
+- **`run_prefix`** — empty on host-native projects, `bun run dx` (or equivalent) on Docker-in-container projects. Every lean-validation and E2E command, in the orchestrator and in each task, goes through it. ralph itself manages no containers/images — it delegates to the project's wrapper.
+- **deps ready?** — if `node_modules` can't run lean validation, the orchestrator **auto-installs once on the host** (`bun install`, or `bun run up` for a Docker project) and re-verifies; if it still can't run, it **hard-stops** rather than dispatch onto a broken environment.
+- **`e2e`** — `dev+prod` / `prod-only` / `unsupported`, which drives everything below.
+
+**Dev server is capability-driven.** By default (`e2e: unsupported` / `prod-only`, and all wave mode) **no dev server** — lean validation needs no running app, and a `next dev` watcher is pure waste (in wave mode, a recompile storm across N worktrees). The **exception**: `e2e: dev+prod` in single mode keeps exactly **one** warm dev server alive for the run — the recompiles are the hot-reload that lets each task run its freshly-authored spec immediately, and single mode runs one task at a time, so there's one server and no storm. Per-task dev E2E is **single-mode only this phase**; wave gets E2E via the mandatory prod gate (S3.5) on the merged app. `/ralph e2e` remains the standalone manager of its own server.
 
 ## Progress files — runtime introspection
 
@@ -216,4 +225,4 @@ Ralphex required Docker-in-Docker (or nested containers) for its execution model
 
 ## Status
 
-v0.1.0 — scaffold. Each subcommand is self-contained and independently testable on a small change. Order of validation against a real repo: `pr` (smallest surface) → `brainstorm` → `review` → `execute` single mode → `plan` single mode → `execute` wave mode → `plan` parallel mode → `e2e`.
+v0.3.0 — capability-gated in-loop E2E added to `execute`: a hardened Step 1 environment probe (`exec_mode` / `run_prefix` / deps auto-install + verify / `e2e` capability) drives mandatory-when-available E2E — per-task dev-mode (single mode) + a post-review prod gate — with no mode menu; lean-only when E2E is unrunnable. Per-worktree-container **wave** E2E is the scoped follow-up. Each subcommand is self-contained and independently testable on a small change. Order of validation against a real repo: `pr` (smallest surface) → `brainstorm` → `review` → `execute` single mode (probe on a host-native repo, then a Docker repo, then an E2E-less repo) → `plan` single mode → `execute` wave mode → `plan` parallel mode → `e2e`.

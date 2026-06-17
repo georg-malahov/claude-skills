@@ -5,7 +5,7 @@ argument-hint: '[resume]'
 
 # /ralph execute
 
-Runs the ralph-loop natively. **No Docker, no external CLI.** All execution is via the Agent tool from this session.
+Runs the ralph-loop natively. **ralph itself orchestrates no containers or images** (unlike ralphex) — all orchestration is via the Agent tool from this session. It still runs the *project's* commands however the project requires: the Step 1 probe resolves a `run_prefix` (empty on host-native projects, `bun run dx` or similar for Docker-in-container projects) and every command + task dispatch goes through it.
 
 ## Execution model — event-driven, non-blocking
 
@@ -38,7 +38,7 @@ If multiple manifests exist with non-`completed` state, ask the user which to ex
 
 ## Session manifest
 
-Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add two custom frontmatter lines: `progress: ${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists, and `dispatches: 0` — the durable count of `ralph-task` dispatches that the RECONCILE 50-cap reads (incremented on every dispatch, so the cap holds across a resume).
+Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add three custom frontmatter lines: `progress: ${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists, `dispatches: 0` — the durable count of `ralph-task` dispatches that the RECONCILE 50-cap reads (incremented on every dispatch, so the cap holds across a resume) — and the **capability profile** resolved by the Step 1 probe, recorded as a small `env:` block (`exec_mode`, `run_prefix`, `e2e`, `e2e_cmd`, `worktree_isolation`). S1/S2/S3.5 and resume read it back; resume does not re-probe unless the block is missing.
 
 Durable resume state is the plan checkboxes + (wave) the manifest's `Current State`. Checkpoint the session manifest after each task verdict, wave transition, and review iteration.
 
@@ -50,17 +50,49 @@ Durable resume state is the plan checkboxes + (wave) the manifest's `Current Sta
 
 No image build check — there is no image.
 
-### No dev server during execution
+### Environment & capability probe — the hardened preflight (run once, record in `env:`)
 
-`/ralph execute` validates with **lean validation only** — `lint → typecheck → test:unit`. None of those need a running app: `tsc` and Vitest read source files directly, they do not hit `localhost:3000` and do not read `.next/`. So the loop needs no dev server, and one must not be running for it.
+Before dispatching any task, determine **how this project runs** and **what can actually run**. Infer, then **verify by running cheap probes** — a fresh git worktree has no `node_modules` (it is gitignored), so assuming "lint works" without checking makes every task fail identically. There is **no E2E mode menu**: E2E is mandatory when the probe finds it runnable, and the loop degrades to lean-only when it isn't.
 
-A `next dev` (Turbopack) process watching the worktree during a ralph run is pure waste — and in wave mode, actively harmful:
+**1. Execution mode + run prefix.** How are project commands invoked?
+- **Docker-in-container** — the project ships a container wrapper (a `dx` script in `package.json`, a `compose.*.yml` / `Dockerfile`, an `image:build` script, or `.claude/docker/`). Commands run through it: `run_prefix = "bun run dx"` (or the project's equivalent). Deps live in the container's `node_modules` volume.
+- **Host-native** — no wrapper. `run_prefix = ""`; deps live in the worktree's own `node_modules`.
 
-- **Recompile storm.** Every file the task agent edits triggers Turbopack to recompile + HMR. In wave mode, N worktrees each running `next dev` = N watchers all churning on every edit, for output nobody consumes.
-- **Resource contention.** Those recompiles compete for CPU/RAM with the agent's own `tsc` + Vitest runs — slower validation, and timing-sensitive unit tests can flake.
-- It buys nothing: E2E (the only phase that needs the app actually serving) is deferred to `/ralph e2e`, which starts and stops its own server.
+ralph the orchestrator manages **no** containers or images itself (unlike ralphex) — it only delegates project commands through `run_prefix`, which may itself enter a container. Record `exec_mode` + `run_prefix` in `env:`.
 
-So: **do not start a dev server, and do not let the environment start one for you.** If the project's devcontainer / `compose` / `bun run dx` wrapper auto-starts `next dev` as its entrypoint, run ralph against a container variant whose entrypoint does *not*, or stop the dev server before the loop begins. The task contract (`prompts/task.md`) forbids agents from starting one. (`.next/` is gitignored by every Next.js scaffold, so a stray dev server does not pollute commits — the cost is wasted compute and flakiness, not a dirty tree. Confirm `.next/` is in `.gitignore` if in doubt.)
+**2. Dependencies ready? (auto-install, then verify.)** Probe that lean validation can actually run: `<run_prefix> bun run lint` (or a fast `--help` / no-op typecheck), and check `node_modules/.bin`.
+- **Missing / unusable** → **auto-install once on the host, then re-verify** (the chosen policy): Docker project → ensure the container + volume are up (`bun run up`); host-native → `bun install` in the worktree. The orchestrator does this on the **host** at preflight — this is environment setup, not an agent adding a new dependency mid-run, so it is consistent with the "host-side deps only" rule.
+- **Still cannot run lean validation after install → HARD-STOP.** Surface the exact command the user must run. Never dispatch tasks onto a broken environment.
+
+**3. E2E capability → `e2e:`.**
+- **`unsupported`** — no `test:e2e` script, no `playwright.config`, or no browsers. → lean-only for the whole run; tasks leave `FIXME(e2e)` placeholders (original behavior). State this explicitly at start.
+- **`dev+prod`** — E2E exists AND a dev-server E2E path is runnable (a documented dev-E2E command, or `playwright.config` `webServer` with `reuseExistingServer`, plus browsers). → per-task dev E2E (single mode) **and** the final prod gate (S3.5).
+- **`prod-only`** — E2E exists but no runnable dev path. → no per-task E2E; final prod gate only.
+
+**3b. Prod E2E command → `e2e_cmd` (resolve whenever `e2e != unsupported`).** The S3.5 prod gate needs the *entrypoint*, which is **not** always `<run_prefix> bun run test:e2e`. Read the project's `test:e2e` script and classify it:
+- **Thin runner** — `test:e2e` is essentially a bare `playwright test` (build + Playwright, no container or sidecar orchestration of its own). → `e2e_cmd = "<run_prefix> bun run test:e2e"`: prefix it like every other command.
+- **Host-orchestrating entrypoint** — `test:e2e` *itself* decides how to reach the runtime (e.g. branches on an env flag such as `RALPHEX_DOCKER` to enter the container) **and/or** launches sidecars **host-side** (GreenMail/mail, a DB, `compose` services) before running the inner suite. → `e2e_cmd = "bun run test:e2e"` **with no `run_prefix`**. Prefixing it with `bun run dx` would run the orchestrator *inside* the container — skipping the host-side sidecar launch and the env-flag branch — so mail/DB-dependent specs fail. Let the entrypoint own container entry; ralph just invokes it host-side. (The same caution applies to the dev-E2E command below: don't prefix a script that already self-orchestrates.)
+
+Detect the host-orchestrating case from the script body: it shells out to a wrapper (`.sh`/`.ts`), chains `&&`/`compose up`/sidecar startup, or reads a Docker env flag — rather than being a bare `playwright test`. Record `e2e_cmd` in the `env:` block; **S3.5 runs `<e2e_cmd>` verbatim and does not re-prefix it.**
+
+**4. Worktree isolation (wave only) → `worktree_isolation:`.** `docker-per-worktree` if each worktree can run its own container, else `shared-host`. **Current phase:** per-task dev E2E is **single-mode only** regardless — wave runs lean per-task and gets E2E via the final prod gate on the merged app. This field is recorded for the planned wave-per-task-E2E follow-up but does not change behavior yet.
+
+Write the resolved `env:` block to the manifest immediately. **E2E is mandatory when available — no opt-out.** (Autonomous runs included; if E2E is `unsupported` the loop is lean-only automatically.)
+
+### Dev server during execution — capability-driven
+
+**Default (`e2e: unsupported` or `prod-only`, and ALL wave mode): no dev server.** Lean validation (`lint → typecheck → test:unit`) needs no running app — `tsc` and Vitest read source directly, they do not hit `localhost:3000` or read `.next/`. A `next dev` (Turbopack) watcher is pure waste, and in wave mode actively harmful:
+
+- **Recompile storm.** Every edit triggers Turbopack recompile + HMR. In wave mode, N worktrees × `next dev` = N watchers churning on every edit, for output nobody consumes.
+- **Resource contention.** Recompiles compete for CPU/RAM with the agent's own `tsc` + Vitest — slower validation, flakier timing-sensitive unit tests.
+
+So in these modes: **do not start a dev server, and do not let the environment start one for you.** If the devcontainer / `compose` / `bun run dx` wrapper auto-starts `next dev` as its entrypoint, run ralph against a variant whose entrypoint does *not*. The task contract (`prompts/task.md`) forbids agents from starting one. (`.next/` is gitignored by every Next.js scaffold, so a stray dev server never pollutes commits.)
+
+**`e2e: dev+prod`, single mode: ONE warm dev server, kept alive for the whole run.** This is the deliberate exception. Here the recompiles are not waste — they are the hot-reload that lets each task run its freshly-authored spec immediately, and single mode runs one task at a time so there is exactly one server and no storm. Pre-flight (resolve once, reuse across tasks — generic, **not** hardcoded to any one project):
+
+1. **Resolve the dev-E2E command.** Prefer a documented headless dev-E2E script; else `<run_prefix> playwright test <spec>` relying on `reuseExistingServer` in `playwright.config`. Read the config to pin `--project` / base-URL so a single spec runs **once**, not once per project.
+2. **Ensure the warm dev server is up** — e.g. the one `bun run up` / the devcontainer already runs — and keep it alive across tasks; do not restart it per task.
+3. **Pass `run_prefix`, the dev-E2E command, and the dev base URL** to every task dispatch (S1) so the task contract's dev-E2E variant activates.
 
 **Initialize the progress file** with the bundled script (`prompts/progress.md` has the full spec):
 
@@ -108,6 +140,8 @@ Outer safety cap: **50 dispatches** total. The count is durable — the orchestr
 3. Dispatch `ralph-task` **in the background**:
    - `subagent_type: "ralph-task"`, `run_in_background: true`
    - Prompt includes: the full plan file, the single task as the target, the project CLAUDE.md, the contract text from `prompts/task.md`, **the progress file path**, and **the absolute path of `${CLAUDE_PLUGIN_ROOT}/scripts/append-progress.sh`** (resolve `${CLAUDE_PLUGIN_ROOT}` to its real path before passing — the subagent does not inherit the variable).
+   - **Always** pass `RUN_PREFIX: <run_prefix>` (from the probe) so the task runs lint/typecheck/test:unit — and E2E — correctly on host or in-container.
+   - **If `e2e: dev+prod` and single mode**: also pass `E2E_PER_TASK: on`, the resolved **dev-E2E command** (from pre-flight), and the **dev base URL**. These activate the task contract's "Dev-mode E2E variant" (`prompts/task.md`) — the task authors and runs its own spec instead of leaving a `FIXME(e2e)` placeholder. For `prod-only` / `unsupported` (and all wave tasks) pass nothing extra: the task keeps the default no-E2E contract.
 4. Log: `append-progress.sh <progress-file> "[orch] dispatched ralph-task (sonnet) — Task N: <title>"`.
 5. Record the task id as `running` in the session manifest and **increment its `dispatches:` counter** (the durable dispatch count the RECONCILE cap reads).
 6. **End the turn** with a status line:
@@ -119,6 +153,7 @@ Do NOT wait. Do NOT poll. The harness re-invokes you on completion.
 
 1. Read the subagent's return summary and the **tail of the progress file**.
 2. Re-read the plan. Are task N's `[ ]` boxes now `[x]` and is there a commit?
+2a. **If the dispatch passed `E2E_PER_TASK: on`** (`e2e: dev+prod`, single mode): "green" additionally requires the task to report its dev-mode E2E spec **passed** — the relevant spec is implemented (not a `.skip` / `FIXME`) and committed. A task that reports `TASK_FAILED` because its spec would not go green is a normal failure → the retry / surface path (step 4) applies. Never mark a task green over a red or skipped E2E spec.
 3. **Green** → `append-progress.sh <progress-file> "[orch] Task N — completed"`. Mark the task id `completed` in the manifest. Go to RECONCILE (which dispatches the next task).
 4. **Not green / `TASK_FAILED`**:
    - **First failure** → `append-progress.sh <progress-file> "[orch] Task N — FAILED (retry 1)"`. Re-dispatch the same task in the background (S1 with a retry note in the prompt). End turn.
@@ -160,6 +195,23 @@ Progress logging during review (per `prompts/progress.md`):
 
 Fan-out must be initiated from this session — subagents cannot spawn subagents.
 
+### S3.5 — Full prod E2E gate (mandatory when E2E is available)
+
+Skip **only** when `e2e: unsupported`. Otherwise, once the review loop exits clean, run the **full** E2E suite once against a **production build** — the mandatory acceptance gate before finalize:
+
+```bash
+<e2e_cmd>   # the probed entrypoint (env: block): "<run_prefix> bun run test:e2e" for a thin
+            # runner, or host-side "bun run test:e2e" (NO run_prefix) when test:e2e self-orchestrates
+            # container entry + host-side sidecars. Run it verbatim — do not re-prefix.
+```
+
+- Run the full suite **once** to catch cross-spec interactions and regressions. On failure: rerun **only failing suites** until green — **never** loop the whole suite (same rule as `/ralph e2e` Step 4).
+- **Surfaced bugs are owned.** A failure in a spec this run didn't touch is a real bug — fix the underlying cause, do not `.skip` to green. If the fix is substantial (new design decision, schema migration, >30 lines), STOP and surface to the user as a new finding rather than scope-creeping.
+- Log: `append-progress.sh <progress-file> "[orch] prod E2E gate — <pass | N failing suites>"`.
+- Advance to S4 only once the suite is green, or the user explicitly overrides via AskUserQuestion (fix now / accept red / abort).
+
+When `e2e: dev+prod` the per-task specs already passed in dev mode — this gate re-runs them (plus the rest of the suite) against the prod build to catch dev/prod divergence and regressions. When `e2e: prod-only` this is the first E2E run this session.
+
 ### S4 — Finalize
 
 - Final lean validation (`lint && typecheck && test:unit`)
@@ -169,13 +221,15 @@ Fan-out must be initiated from this session — subagents cannot spawn subagents
 
 ### S5 — Handoff
 
+**E2E status carries into the handoff.** If `e2e != unsupported`, the full prod E2E suite already passed in S3.5 — so `/ralph pr` can be created **hardened** without re-running E2E from scratch, and `/ralph e2e` is now audit-only (when `dev+prod`, every placeholder is already implemented). If `e2e: unsupported`, E2E never ran — PR is lean and carries the `FIXME(e2e)` note.
+
 If `RALPH_AUTO_PR` is set:
 - user said `"hardened"` / `"with review"` → chain into `/ralph review`
-- otherwise → chain into `/ralph pr` (lean)
+- otherwise → chain into `/ralph pr` (hardened if E2E passed this run, else lean)
 
 Otherwise ask via AskUserQuestion:
 - "Visual review (`/ralph review`)" (Recommended)
-- "Create PR now (`/ralph pr`)" — lean, no review, no E2E
+- "Create PR now (`/ralph pr`)" — hardened if E2E already passed this run (`e2e != unsupported`), else lean
 - "Stop"
 
 ---
@@ -257,9 +311,9 @@ When all plans in the wave have every task `[x]`:
 
 ### W4 — Merge wave
 
-The final merge plan runs as a full **single-mode** loop (S1–S4) in its own worktree — tasks **and** the review loop. The git-diff-driven review covers the consolidated change surface; per-branch pre-merge review would produce false positives about missing wiring.
+The final merge plan runs as a full **single-mode** loop (S1–S4, including the **S3.5 prod E2E gate** when `e2e != unsupported`) in its own worktree — tasks **and** the review loop. The git-diff-driven review covers the consolidated change surface; per-branch pre-merge review would produce false positives about missing wiring.
 
-Per-wave plans run tasks-only; the merge plan runs the full pipeline.
+Per-wave plans run tasks-only; the merge plan runs the full pipeline. **In the current phase, per-task dev E2E is single-mode only** — per-wave tasks run lean validation, have no dev server, and leave `FIXME(e2e)` placeholders as usual; the consolidated prod E2E gate fires once here, on the merged surface. (Per-worktree-container wave E2E — each worktree running its own app via `worktree_isolation: docker-per-worktree` — is the planned follow-up.)
 
 ### W5 — Cleanup + handoff
 
@@ -270,4 +324,4 @@ Per-wave plans run tasks-only; the merge plan runs the full pipeline.
 
 ## Resume
 
-`/ralph execute resume` — read the manifest + plan checkboxes (the durable resume state), recreate any removed worktrees from their branches, re-init the progress file (the script appends a `--- Resumed ---` marker), and re-enter RECONCILE. Because resume state lives in the plan + manifest, resume works even if the old progress file is gone.
+`/ralph execute resume` — read the manifest + plan checkboxes (the durable resume state), recreate any removed worktrees from their branches, re-init the progress file (the script appends a `--- Resumed ---` marker), and re-enter RECONCILE. Because resume state lives in the plan + manifest, resume works even if the old progress file is gone. Read the `env:` capability profile from the manifest instead of re-probing (re-probe only if the block is missing — e.g. an older manifest). Re-verify deps can still run (a cold-start worktree may have lost `node_modules`); and if `e2e: dev+prod` in single mode, re-resolve the dev-E2E command and re-ensure the warm dev server is up before dispatching the next task.
