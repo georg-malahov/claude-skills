@@ -59,21 +59,32 @@ Write one plan to `docs/plans/YYYY-MM-DD-<slug>.md`:
 <grilled context, scoped to this work>
 
 ## Development Approach
-- Testing: TDD preferred; every task includes unit tests
-- E2E: deferred — leave FIXME(e2e) placeholders for user-visible behavior
-- Validation: lean (lint + typecheck + test:unit) per task
+- Testing: TDD preferred; every task includes unit tests.
+- E2E: **capability-driven, decided per task by `/ralph execute`'s probe — do NOT hardcode deferral here.**
+  - When the project supports dev-mode E2E (probe resolves `e2e: dev+prod`), each user-visible task
+    **authors and runs its own real E2E spec** in dev mode against the warm dev server (no `FIXME(e2e)`
+    placeholder), iterating to green before the task is done.
+  - When E2E is `prod-only` / `unsupported`, that same task instead leaves a `FIXME(e2e)` placeholder;
+    E2E runs only at the final prod gate (or via `/ralph e2e`).
+  - Per-task dev E2E is **single-mode only** today — in wave mode, per-wave tasks stay lean with
+    `FIXME(e2e)` and the merge plan's prod gate provides E2E.
+  - Either way, write each user-visible task so its acceptance **names the observable browser behavior**;
+    pure-logic tasks (no user-visible surface) need unit tests only.
+- Validation per task: lean (`lint + typecheck + test:unit`) — **plus the task's own dev-mode E2E spec
+  when execute enables it**. A full prod E2E gate runs once at the end (execute S3.5).
 
 ## Implementation Steps
 
 ### Task 1: <name>
 - [ ] <action>
 - [ ] write unit tests
-- [ ] FIXME(e2e) placeholder if user-visible
+- [ ] if user-visible: author + run an E2E spec (executor runs it per task in dev mode when supported;
+      falls back to a `FIXME(e2e)` placeholder only when E2E is unsupported)
 - [ ] run lean validation
 
 ### Task N: Verify
 - [ ] confirm requirements met
-- [ ] final lean validation
+- [ ] final lean validation (the full prod E2E gate runs in `/ralph execute` S3.5 when E2E is available)
 ```
 
 No manifest needed. Tell user: `/ralph execute` to run it.
@@ -85,7 +96,7 @@ Mirror the `/orchestrate plan` Steps P2–P5 logic:
 1. **Decompose** into waves (foundation → parallel tracks → sequential follow-ups → merge wave).
 2. **Validate** plan sizes (3–6 tasks each) and challenge dependencies — can they be eliminated with mocks?
 3. **Generate per-wave lean plans** using parallel Agent instances. Each plan declares Mocks (removed during merge).
-4. **Generate the merge plan** at `docs/plans/YYYY-MM-DD-<feature>-merge.md`. Tasks: manifest cross-check, mock removal, component wiring, full validation **minus E2E** (E2E still excluded — that's `/ralph e2e`'s job), update docs.
+4. **Generate the merge plan** at `docs/plans/YYYY-MM-DD-<feature>-merge.md`. Tasks: manifest cross-check, mock removal, component wiring, full validation, update docs. The merge plan runs as a **full single-mode loop** in `/ralph execute` (W4) — review loop **plus the prod E2E gate (S3.5) when E2E is available** — so the consolidated merged surface gets real E2E coverage. Only when `e2e: unsupported` does it stay lean (placeholders deferred to `/ralph e2e`).
 5. **Write the execution manifest** at `docs/plans/YYYY-MM-DD-<feature>-execution.md` with the DAG and an empty execution log table.
 
 If the grill surfaced new npm/bun deps: each plan's Context block has a `### BEFORE LAUNCH (host)` section listing packages. `/ralph execute` will gate on this.
