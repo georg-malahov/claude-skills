@@ -69,8 +69,10 @@ If credentials are missing when needed, ask the user via `AskUserQuestion`:
 
 `developer_analysis`: when `true`, the model generates a "Developer Analysis"
 section (bugs / UX issues / open questions / prioritized action items) from the
-transcript and embeds it in the rendered page. Useful for screencasts that
-review a tool, comment on bugs, or give product/UX feedback. Off by default.
+transcript and embeds it in the rendered page, **and additionally produces
+per-block "implementation briefs" as Markdown files** (see "Developer-analysis
+block briefs" below). Useful for screencasts that review a tool, comment on
+bugs, or give product/UX feedback. Off by default.
 
 **Saving:** After every interactive choice, update `preferences.json`. Always save `last_folder` after every run.
 **Loading:** Read at start. Use saved values as "(Recommended)" defaults. In silent mode, use directly.
@@ -187,6 +189,14 @@ One confirmation, one script execution, minimal interaction.
       `priority-label`, `summary-box`, `question-list`,
       `<a class="timestamp" data-time="<seconds>">~MM:SS</a>` for clickable jumps.
       Match the page language (RU / DE / EN — same as the transcript).
+   d2. **If `developer_analysis` is true, ALSO generate per-block "implementation
+      briefs" as Markdown files — this is a mandatory default of the analysis
+      step, not optional.** See "Developer-analysis block briefs" below for the
+      full contract. In short: partition the full transcript into semantic
+      blocks, write one `NN-<slug>-brief.md` per block into the output dir, and
+      add a `block_briefs` array to `metadata.json`. The rendered page then shows
+      a clickable "Implementation Briefs" box (rendered preview modal + raw
+      links); the `.md` files upload automatically with the folder.
    e. Write `metadata.json` to the output directory:
       ```json
       {
@@ -200,10 +210,17 @@ One confirmation, one script execution, minimal interaction.
           "collapse_label": "Свернуть",
           "expand_label": "Развернуть",
           "html": "<blockquote>...</blockquote><hr><h2>Баги</h2>..."
-        }
+        },
+        "block_briefs": [
+          {"num": "01", "name": "Layout & Navigation", "changes": "~10", "file": "01-layout-navigation-brief.md"},
+          {"num": "02", "name": "Calendar", "changes": "~9", "file": "02-calendar-brief.md"}
+        ]
       }
       ```
-      Omit the `analysis` key entirely when `developer_analysis` is false.
+      Omit the `analysis` AND `block_briefs` keys entirely when
+      `developer_analysis` is false. When it is true, include both. Optional
+      localisation keys `block_briefs_title` / `block_briefs_intro` override the
+      English box heading/intro to match the page language.
    f. The script detects metadata.json and continues automatically.
 
 7. Script finishes. Display result, link is already copied to clipboard.
@@ -323,7 +340,26 @@ If translation was requested (Step 3), the translation itself is done by Claude 
 
 **After the script completes**, show summary table (ffprobe both files) and report results.
 
+## Vertical Video / Instagram Reels
+
+When the source is vertical (e.g. 602×1080 phone footage), **do not pillarbox**. The default 1920×1080 output wraps the video in black bars, which makes burned subtitles span the full 1920px width — far wider than the visible frame.
+
+**Correct approach for vertical content:**
+1. Re-encode at native resolution (no pillarboxing):
+   ```bash
+   ffmpeg -i source.mp4 \
+       -vf "scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:(ow-iw)/2:(oh-ih)/2" \
+       -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k \
+       -movflags +faststart output_vertical.mp4
+   ```
+2. Burn subtitles into `output_vertical.mp4`, not the pillarboxed version.
+3. The resulting file is correct for Instagram Reels upload.
+
+The web player works fine with vertical video — the browser handles aspect ratio natively.
+
 ## Subtitle Styles (for burn mode)
+
+### Quick presets (via `burn_subtitles.py`)
 
 | Preset | Font | Size | Outline | Shadow | Bold | Color |
 |--------|------|------|---------|--------|------|-------|
@@ -331,8 +367,180 @@ If translation was requested (Step 3), the translation itself is done by Claude 
 | Modern | Helvetica Neue | 18 | 1 | 1 | 1 | White |
 | Cinematic | Georgia | 18 | 1 | 0 | 0 | White |
 | High Contrast | Arial | 22 | 2 | 2 | 1 | Yellow |
+| Reels (recommended) | Nunito Sans | 11 | 0.5 | 0 | 0 | White |
 
 **Important:** Never scale font sizes for higher resolutions. Always downscale to 1080p first.
+
+### Advanced ASS pipeline (full style control)
+
+`burn_subtitles.py` only exposes `force_style` parameters. For full control (custom fonts, box backgrounds, fine-tuned outline), generate and edit an ASS file directly:
+
+**Step 1 — Convert SRT → ASS:**
+```bash
+ffmpeg -i input.srt output.ass
+```
+
+**Step 2 — Edit the `Style:` line** in `[V4+ Styles]`:
+```
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+```
+
+Key fields:
+- `BorderStyle=1` — outline only (no box, recommended for Reels)
+- `BorderStyle=4` — opaque box background; `Outline` value controls padding size
+- `Outline=0.5` — thin 0.5-unit stroke (decimal values work in libass)
+- `Bold=0` — use font weight via FontName instead (e.g. "Nunito Sans Light")
+- `BackColour=&H80000000` — 50% transparent black box (ASS ABGR, alpha 0x00=opaque)
+
+**Recommended Reels style (ASS Style line):**
+```
+Style: Default,Nunito Sans,11,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0.5,0,2,5,5,12,1
+```
+(PlayResX=384, PlayResY=288, video=602×1080 — values are in ASS coordinate space)
+
+**Step 3 — Burn with `ass` filter + `fontsdir`:**
+```bash
+ASS="output.ass"
+ESCAPED=$(echo "$ASS" | sed 's/:/\\:/g')
+ffmpeg -i video.mp4 \
+    -vf "ass='${ESCAPED}':fontsdir='${HOME}/Library/Fonts'" \
+    -c:v libx264 -crf 18 -preset medium -c:a copy \
+    output_burned.mp4
+```
+
+**Important:** Use `ass=` filter (not `subtitles=:force_style=`) when working with an ASS file directly. The `{\blur}` override tag blurs the text glyphs, not the box border — avoid it with `BorderStyle=4`.
+
+### Google Fonts installation for ffmpeg
+
+libass resolves fonts via fontconfig. Google Fonts must be installed locally first.
+
+**Workflow:**
+```bash
+# 1. Find TTF download URL via GitHub API
+curl -s "https://api.github.com/repos/googlefonts/NunitoSans/contents/fonts/ttf"
+
+# 2. Download the specific weight to ~/Library/Fonts/
+curl -sL "<raw_url>" -o ~/Library/Fonts/FontName-Weight.ttf
+
+# 3. Verify it's a real TTF (not an HTML error page)
+file ~/Library/Fonts/FontName-Weight.ttf
+
+# 4. Read the exact internal family name (nameID=1) — this is what goes in the ASS Style line
+python3 - <<'EOF'
+with open('/path/to/font.ttf', 'rb') as f: data = f.read()
+import struct
+numTables = struct.unpack('>H', data[4:6])[0]
+tables = {}
+for i in range(numTables):
+    rec = data[12+i*16:28+i*16]
+    tables[rec[:4].decode('ascii','replace')] = struct.unpack('>II', rec[8:16])
+off, ln = tables['name']
+nd = data[off:off+ln]
+count, strOff = struct.unpack('>HH', nd[2:6])
+for i in range(count):
+    pid, eid, lid, nid, slen, soff = struct.unpack('>HHHHHH', nd[6+i*12:18+i*12])
+    s = nd[strOff+soff:strOff+soff+slen]
+    if nid in (1,2,4) and pid == 3:
+        try: print(f'nameID={nid}: {s.decode("utf-16-be")}')
+        except: pass
+EOF
+
+# 5. Use nameID=1 value as FontName in the ASS Style line
+# 6. Pass fontsdir= to the ass filter so libass finds the font
+```
+
+**Known font name quirks:**
+- `Jost-Light.ttf` → internal name is `Jost* Light` (asterisk is part of the name)
+- `NunitoSans-Light.ttf` → internal name is `Nunito Sans Light`
+- `NunitoSans-Regular.ttf` → internal name is `Nunito Sans`
+
+**Font preview:** A reference HTML page comparing 8 Google Fonts at multiple weights (with subtitle-style rendering) is at `~/projects/screencasts/subtitle-fonts.html`. Open it to pick fonts visually.
+
+### Subtitle segmentation (cleanup after Deepgram)
+
+Deepgram sometimes produces overlapping timestamps and multi-sentence chunks. Clean up manually:
+- One sentence per cue maximum
+- No overlapping timestamps — end one cue where the next begins
+- Merge very short consecutive cues (single words, fragments) into one
+- Target 3–5 seconds per cue for Reels; longer is fine for screencasts
+- Fix ASR errors (proper nouns, brand names, foreign words) by editing the `.srt` and `.vtt` files directly
+
+## Developer-analysis block briefs
+
+When `developer_analysis` is `true`, the analysis step does **two** things: the
+in-page "Developer Analysis" HTML block (above) **and** a set of standalone
+**implementation briefs** — one Markdown file per semantic block of the video.
+This is a default, not an extra request. The rendered page links each brief in a
+clickable "Implementation Briefs" box (rendered-preview modal + raw `.md`
+links), and the `.md` files upload automatically with the folder.
+
+### What to produce
+
+1. **Partition the full transcript into semantic blocks** (topics/areas the
+   speaker covers — e.g. Layout, Calendar, Communication, …). Order the blocks
+   **largest → smallest by number of changes/requirements**. Read the full
+   SRT/VTT in the output dir, not the truncated preview.
+
+2. **Write one brief per block** into the output directory, named
+   `NN-<slug>-brief.md` (`01-…`, `02-…`, zero-padded, matching the order). Each
+   brief contains, in this order:
+   - **Title** (`# <Block> — Implementation Block Brief`).
+   - **App context** — a few lines so the brief is self-contained, plus an index
+     of all blocks (number · name · file) so they cross-link.
+   - **Requirements** — concrete, numbered, each with `(~MM:SS)` timestamp(s)
+     into the video. Convert the speaker's fuzzy wording into clear requirements;
+     flag genuinely open decisions.
+   - **Suggested sequencing** — short ordered build plan + cross-block deps.
+   - **Verbatim appendix** — the block's raw transcript span(s) with `[MM:SS]`
+     markers. **Partition rule: every transcript segment belongs to exactly one
+     block, so the union of all appendices reproduces the ENTIRE transcript —
+     nothing dropped.** (Verify segment counts add up.)
+
+   Match the page language (RU / DE / EN — same as the transcript). If a later
+   meeting/audio revisits the same topics, fold it in as a second "Appendix B"
+   and add a short "Meeting update" note per affected brief.
+
+3. **Add a `block_briefs` array to `metadata.json`** (see the metadata example in
+   the silent-mode flow). Each item: `{"num","name","changes","file"}` (`num`
+   and `changes` optional; `name`+`file` required). `render_page.py` turns this
+   into the linked box automatically — do **not** hand-write the box HTML.
+   Optional `block_briefs_title` / `block_briefs_intro` localise the heading.
+
+### How it renders & uploads (already wired — no manual steps)
+
+- `render_page.py` reads `block_briefs` and prepends the "Implementation Briefs"
+  box to the analysis block. Preview links carry `data-md`; `player.html` fetches
+  the `.md`, renders it with a lazy-loaded `marked.js`, and shows it in a modal
+  (falls back to raw text if the CDN is blocked). Each row also has a "raw ↗"
+  link to the raw file.
+- `upload_s3.py` uploads `.md` files (served `text/plain; charset=utf-8`, so raw
+  links open inline). Just make sure the briefs are in the output dir before the
+  upload step. For an already-shared page, drop new/edited `.md` into the folder
+  and re-run the upload (see Partial Update).
+
+## Partial Update (re-render / re-upload only)
+
+To fix metadata, subtitles, or fonts on an already-shared video without re-encoding:
+
+```bash
+SKILL_DIR="~/.claude/plugins/cache/georg-malahov-claude-skills/process-video/3.1.0/skills/video"
+
+# 1. Edit metadata.json and/or .srt/.vtt in the output folder
+
+# 2. Re-render the player page
+python3 "$SKILL_DIR/scripts/render_page.py" \
+    --output-dir "<output_folder>" \
+    --template "$SKILL_DIR/scripts/player.html" \
+    --metadata "<output_folder>/metadata.json"
+
+# 3. Re-upload (reuses the existing S3 key)
+python3 "$SKILL_DIR/scripts/upload_s3.py" \
+    "<output_folder>" \
+    --key "<existing_key>" \
+    --credential-dir ~/.config/video-skill
+```
+
+The S3 key is in `<share_folder>/.share_registry.json`.
 
 ## Error Handling
 

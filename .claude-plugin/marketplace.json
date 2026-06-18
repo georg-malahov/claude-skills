@@ -12,7 +12,7 @@
       "name": "process-video",
       "description": "Process videos: optimize for web, transcribe audio with Deepgram Nova 3, add subtitles in any language, translate, and burn into video with customizable styles.",
       "source": "./plugins/process-video",
-      "version": "1.0.0",
+      "version": "3.1.0",
       "author": {
         "name": "Georg Malahov",
         "email": "georg@malahov.io"

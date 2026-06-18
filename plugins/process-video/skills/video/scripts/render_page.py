@@ -40,7 +40,70 @@ def build_subtitle_tracks(tracks):
     return "\n".join(parts)
 
 
-def build_analysis_block(analysis):
+def _attr_escape(s):
+    """Escape a string for safe use inside an HTML attribute / text node."""
+    return (
+        str(s)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def build_block_briefs_box(briefs, title=None, intro=None):
+    """Build the "Implementation Briefs" box with rendered-preview + raw links.
+
+    `briefs` is a list of dicts, ordered (largest → smallest):
+        {"num": "01", "name": "Layout & Global Navigation",
+         "changes": "~10", "file": "01-layout-navigation-brief.md"}
+    `num` and `changes` are optional. `name` and `file` are required.
+
+    The preview links carry data-md / data-title so player.html's modal renders
+    them; each row also has a "raw ↗" link to the raw .md (text/plain). Returns
+    "" when there are no briefs.
+    """
+    if not briefs:
+        return ""
+    title = title or "Implementation Briefs (Markdown)"
+    intro = intro or (
+        "One self-contained brief per block: context, requirements with "
+        "timestamps, suggested sequencing and verbatim transcript excerpts. "
+        "Click to open a rendered preview; “raw ↗” opens the raw markdown in a new tab."
+    )
+    items = []
+    for b in briefs:
+        f = _attr_escape(b.get("file", ""))
+        name = b.get("name", b.get("label", ""))
+        num = b.get("num")
+        label = f"{num} · {name}" if num else name
+        label_e = _attr_escape(label)
+        changes = b.get("changes")
+        meta = ""
+        if changes:
+            meta = f'{_attr_escape(changes)} changes · '
+        items.append(
+            '<li style="margin:5px 0">'
+            f'<a href="{f}" data-md="{f}" data-title="{label_e}" '
+            'style="color:#5c9aff;text-decoration:none;cursor:pointer;'
+            f'border-bottom:1px dashed #5c9aff44">{label_e}</a> '
+            f'<span style="color:#777;font-size:0.8rem">({meta}'
+            f'<a href="{f}" target="_blank" rel="noopener" '
+            'style="color:#888;text-decoration:none">raw ↗</a>)</span>'
+            '</li>'
+        )
+    return (
+        '<div id="blockBriefs" style="border:1px solid #2a3a2a;background:#141a14;'
+        'border-radius:8px;padding:18px 20px;margin-bottom:28px">'
+        f'<h2 style="margin:0 0 6px">\U0001F4C4 {_attr_escape(title)}</h2>'
+        f'<p style="color:#aaa;font-size:0.9rem;margin:0 0 10px">{intro}</p>'
+        f'<ul style="margin:0;padding-left:20px">{"".join(items)}</ul>'
+        '</div><hr>'
+    )
+
+
+def build_analysis_block(analysis, block_briefs=None,
+                         block_briefs_title=None, block_briefs_intro=None):
     """Build the developer-analysis HTML block from metadata.
 
     `analysis` may be a string (raw HTML body) or a dict:
@@ -50,6 +113,9 @@ def build_analysis_block(analysis):
           "collapse_label": "Collapse",         # optional
           "expand_label": "Expand",             # optional
         }
+
+    `block_briefs` (optional) is a list rendered as a quick-links box prepended
+    to the analysis body (rendered-preview modal + raw .md links).
 
     Returns "" when there is no analysis content.
     """
@@ -69,6 +135,11 @@ def build_analysis_block(analysis):
         expand = analysis.get("expand_label", "Expand")
     else:
         return ""
+
+    briefs_box = build_block_briefs_box(block_briefs, block_briefs_title, block_briefs_intro)
+    # Only prepend if the briefs box isn't already embedded in the body html.
+    if briefs_box and 'id="blockBriefs"' not in body_html:
+        body_html = briefs_box + body_html
 
     return (
         '\n  <div class="analysis" id="analysisSection">\n'
@@ -119,10 +190,16 @@ def render(template_path, metadata, passcode=None, download_button=False, origin
     subtitle_tracks = metadata.get("subtitle_tracks", [])
     analysis = metadata.get("analysis")
 
+    block_briefs = metadata.get("block_briefs")
+    block_briefs_title = metadata.get("block_briefs_title")
+    block_briefs_intro = metadata.get("block_briefs_intro")
+
     passcode_hash = simple_hash(passcode) if passcode else ""
     tracks_html = build_subtitle_tracks(subtitle_tracks)
     chapters_json = json.dumps(chapters, ensure_ascii=False)
-    analysis_block = build_analysis_block(analysis)
+    analysis_block = build_analysis_block(
+        analysis, block_briefs, block_briefs_title, block_briefs_intro
+    )
 
     if download_button:
         download_html = build_download_button(video_filename, original_filename)
