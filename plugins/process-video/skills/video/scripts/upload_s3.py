@@ -24,11 +24,13 @@ MIME_TYPES = {
     ".mov": "video/quicktime",
     ".vtt": "text/vtt; charset=utf-8",
     ".srt": "text/plain; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
     ".json": "application/json",
 }
 
 # Files to upload (by extension). Skip raw Deepgram JSON and temp files.
-UPLOAD_EXTENSIONS = {".html", ".mp4", ".webm", ".vtt", ".srt", ".mov"}
+# .md covers developer-analysis block briefs (served as raw text for in-browser viewing).
+UPLOAD_EXTENSIONS = {".html", ".mp4", ".webm", ".vtt", ".srt", ".mov", ".md"}
 
 
 def load_s3_credentials(credential_dir):

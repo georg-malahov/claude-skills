@@ -1,6 +1,6 @@
 {
   "name": "process-video",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Process and share videos: optimize for web, transcribe with Deepgram Nova 3, subtitles, and share via S3 or local tunnel with short URLs.",
   "author": {
     "name": "Georg Malahov",
