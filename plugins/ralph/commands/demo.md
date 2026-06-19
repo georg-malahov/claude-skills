@@ -131,6 +131,36 @@ Set `DEMO_VIEWPORT=<viewport>` and run the demo capture spec against a running a
 
 The spec reads `narration.json`, records each beat's `atMs`, performs the action, holds for the spoken duration + the pace tail, and writes `video.webm` + `test-results/preview-<viewport>/timing.json`.
 
+#### Highlight the demonstrated element — a pulsating frame, ELEMENT-ANCHORED
+
+Every beat should draw the viewer's eye to the element it narrates with a **pulsating red frame**. The frame is what makes a screen-capture read as a guided tour instead of a cursor wandering a busy UI — apply it to the target of each beat (the tab being clicked, the panel that just opened, the search dropdown, etc.) and clear it before the next beat / before navigating away.
+
+**The frame MUST be anchored to the element, not to a captured screen position.** The common, must-avoid bug (it was fixed once already — do not reintroduce it): drawing a separately-positioned overlay `<div>` placed at the element's `getBoundingClientRect()` at apply-time. That overlay is frozen in viewport coordinates, so the instant the page scrolls, a list virtualizes, or layout shifts, the frame drifts off its target and points at empty space. Anchor it to the element so it moves *with* the element on scroll/resize:
+
+- **Style the element itself** (or a stable wrapper that contains it) — add a class/attribute that paints an animated `outline` + `box-shadow`. `outline` does not affect layout (no reflow/jump), and because the style lives on the element, it tracks the element through any scroll or relayout for free. This is the robust, scroll-safe approach — prefer it.
+- If you truly cannot style the element (e.g. a canvas region), anchor the overlay as a **child of the element / its offset parent** (`position: absolute; inset: 0`) so it inherits the element's scroll, rather than a `position: fixed` overlay at a one-shot rect.
+- Never recompute a fixed rect on a timer to "follow" the element — that stutters on the recording and still lags fast scrolls.
+
+Inject the keyframes + helper once (e.g. `await page.addStyleTag({ content })` in setup), then toggle per beat:
+
+```ts
+// once, in setup
+await page.addStyleTag({ content: `
+  @keyframes demo-pulse { 0%,100% { outline-color: rgba(239,68,68,.95); box-shadow: 0 0 0 4px rgba(239,68,68,.35); }
+                          50%     { outline-color: rgba(239,68,68,.35); box-shadow: 0 0 0 10px rgba(239,68,68,0); } }
+  [data-demo-spotlight] { outline: 3px solid rgba(239,68,68,.95); outline-offset: 3px; border-radius: 6px;
+                          animation: demo-pulse 1.1s ease-in-out infinite; }
+`});
+// per beat: anchor to THIS beat's element, clear the previous
+const spotlight = async (loc?: Locator) => {
+  await page.evaluate(() => document.querySelectorAll('[data-demo-spotlight]')
+    .forEach((el) => el.removeAttribute('data-demo-spotlight')));
+  if (loc) await loc.evaluate((el) => el.setAttribute('data-demo-spotlight', ''));
+};
+```
+
+Use the spotlight on the *result* of the action (the opened panel/dropdown, the active tab), not just the click target, so the held frame shows the viewer what changed. Clear it (`spotlight()`) at the end / before a route change so the closing shot is clean.
+
 ### 5b — Build the demo
 
 Write `demo-meta-<viewport>.json` — a `{title, description}` you generate from the plan + the narration transcript (a short "what this shows, by section" overview; this is the page's intro text). Append a viewport suffix to the title: **" (Desktop)"** or **" (Mobile)"**.
