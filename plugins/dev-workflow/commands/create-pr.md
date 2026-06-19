@@ -82,9 +82,6 @@ Generate a SPECIFIC test plan based on the actual changes:
 - Do NOT use generic items like "All unit tests pass" — those are enforced by the gate above
 - Focus on manual verification, behavioral checks, integration testing specific to the changes
 
-**Screenshots / preview:**
-If a `/preview-check` report exists in this branch (e.g. `docs/previews/`), reference it in the PR body. Otherwise, skip.
-
 ## Step 4: Confirm with User
 
 Present the PR title, summary, and test plan. Use AskUserQuestion:

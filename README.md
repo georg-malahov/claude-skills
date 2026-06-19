@@ -16,7 +16,7 @@ Add the marketplace and install the plugin you need:
 | Plugin | Description |
 |--------|-------------|
 | [process-video](plugins/process-video/) | Process and share videos: optimize, transcribe, subtitles, and share via tunnel with `/video` command |
-| [dev-workflow](plugins/dev-workflow/) | `/orchestrate`, `/create-pr`, `/fix-to-green`, `/preview-check` — multi-wave ralphex orchestration, gated PR creation, test-first bug fixing, visual sanity checks |
+| [dev-workflow](plugins/dev-workflow/) | `/orchestrate`, `/create-pr`, `/fix-to-green` — multi-wave ralphex orchestration, gated PR creation, test-first bug fixing |
 
 ## Adding New Plugins
 

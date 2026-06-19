@@ -9,7 +9,8 @@ screenshot retirement), shipped as a consistent **0.4.1** bump. Delivers four th
    command outright.
 2. **Port the hardened execute preflight** (deps/repo-health probe) that was only ever in the
    installed cache, and **extend it with E2E-runtime readiness** that attempts the project's
-   documented `bun run up` before degrading.
+   documented `bun run up` before degrading; and **record E2E timings in the post-review prod
+   gate** so the suite's shard balance stays fresh as specs are added.
 3. **Add a desktop/mobile viewport step to `/ralph demo`.** Desktop is the default and always
    built first; mobile is optional and built after desktop is ready, reusing the desktop
    narration so it's cheap to add.
@@ -111,13 +112,13 @@ Narration (TTS audio in `test-results/narration/`) is **viewport-independent**, 
       S3.5, and resume (which re-verifies readiness). Grep that `e2e_cmd` / `env:` references still line up.
 
 ### Task 2: Retire screenshots and delete /preview-check
-- [ ] Delete `plugins/dev-workflow/commands/preview-check.md`.
-- [ ] Remove the Screenshots line from `plugins/ralph/commands/pr.md` (keep the Demo line).
-- [ ] Remove the /preview-check screenshot surfacing from `plugins/ralph/commands/review.md`.
-- [ ] Remove the "Invoke /preview-check" checklist item from `plugins/dev-workflow/commands/orchestrate.md`.
-- [ ] Remove the report reference from `plugins/dev-workflow/commands/create-pr.md`.
-- [ ] Update `plugins/dev-workflow/README.md` (drop the row) and `plugins/dev-workflow/.claude-plugin/plugin.json` description (drop "visual preview sanity checks").
-- [ ] Static check: `grep -rn "preview-check\|docs/previews" plugins/ README.md .claude-plugin/` returns **zero** hits.
+- [x] Delete `plugins/dev-workflow/commands/preview-check.md`.
+- [x] Remove the Screenshots line from `plugins/ralph/commands/pr.md` (keep the Demo line).
+- [x] Remove the /preview-check screenshot surfacing from `plugins/ralph/commands/review.md`.
+- [x] Remove the "Invoke /preview-check" checklist item from `plugins/dev-workflow/commands/orchestrate.md`.
+- [x] Remove the report reference from `plugins/dev-workflow/commands/create-pr.md`.
+- [x] Update `plugins/dev-workflow/README.md` (drop the row) and `plugins/dev-workflow/.claude-plugin/plugin.json` description (drop "visual preview sanity checks").
+- [x] Static check: `grep -rn "preview-check\|docs/previews" plugins/ README.md .claude-plugin/` returns **zero** hits.
 
 ### Task 3: Add the desktop/mobile viewport step to /ralph demo
 - [ ] Add a viewport-selection step to `plugins/ralph/commands/demo.md` (after the capability
@@ -154,9 +155,29 @@ Narration (TTS audio in `test-results/narration/`) is **viewport-independent**, 
 - [ ] Static check: every `plugin.json` + `marketplace.json` parses as JSON; versions in each
       `plugin.json` match its `marketplace.json` entry.
 
-### Task 6: Verify
+### Task 6: Record E2E timings in the S3.5 prod gate (shard rebalancing)
+Many new specs are added during a run, so the suite's shard balance goes stale. The post-review
+full prod gate (S3.5) already runs the whole suite once — the natural place to refresh timings.
+- [ ] In `execute.md` S3.5: when the project supports per-spec duration recording (a
+      `--record-durations` flag, a documented durations mode, or an existing
+      `tests/e2e/.spec-durations.json` the suite reads for sharding), run the mandatory
+      full-suite gate **with timing capture enabled** — no extra run, since S3.5 already runs
+      the whole suite once. This refreshes the durations file so the next run's shard balancing
+      reflects the specs added this run.
+- [ ] Capability-gate it ("if available"): detect durations support from the project's
+      `test:e2e` script / playwright config (a record-durations flag or an existing
+      `.spec-durations.json`). Unsupported → run the gate normally (no behavior change). If the
+      gate already ran *without* recording, do ONE recorded rerun of the full suite.
+- [ ] Commit the refreshed durations file in S4 finalize (a tracked source artifact, like the
+      plan move) so future runs pick up the rebalanced timings; no-op when `e2e: unsupported`.
+- [ ] Keep generic — read the project's durations convention (the T3 template uses
+      `tests/e2e/.spec-durations.json`); don't hardcode a path.
+- [ ] Static check: re-read S3.5 + S4 for coherence (record once, commit durations, no-op when
+      e2e unsupported); grep `spec-durations|record-durations|S3.5` line up.
+
+### Task 7: Verify
 - [ ] `grep -rn "preview-check\|docs/previews"` across the repo → zero hits.
 - [ ] Version consistency: ralph 0.4.1 and dev-workflow 0.1.1 agree between plugin.json and marketplace.json.
 - [ ] JSON parse all manifests; `py_compile` build-demo.py.
-- [ ] Re-read execute.md preflight + demo.md viewport flow once more for coherence.
+- [ ] Re-read execute.md preflight + S3.5 timings + demo.md viewport flow once more for coherence.
 - [ ] Confirm requirements met; note that going live requires push + `/plugin update` in a fresh session.

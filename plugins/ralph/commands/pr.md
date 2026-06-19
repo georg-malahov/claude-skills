@@ -76,8 +76,6 @@ Run in parallel:
 - If hardened: include "E2E suite green: <count> tests" line referencing the test files added
 - If lean: include "E2E hardening deferred — see FIXME(e2e) markers in tests/e2e/"
 
-**Screenshots:** if `docs/previews/` has a report from `/preview-check`, link it.
-
 **Demo:** if `/ralph demo` produced a hosted walkthrough for this branch this session (a recorded S3 URL, e.g. in the demo session manifest), add a `🎬 Demo` line to the body. Do not commit the video — link only.
 
 **Review summary:** if `docs/plans/.scratch/review-<slug>.md` exists for this work, link or inline its Items section.

@@ -9,7 +9,6 @@ Slash commands for the multi-wave ralphex orchestration workflow:
 | `/orchestrate resume` | Pick up a paused orchestration |
 | `/create-pr` | Open a GitHub PR — **gated on green validation** (lint + typecheck + unit + E2E) |
 | `/fix-to-green` | Take multiple bug reports, categorize, apply test-first commits for bugs |
-| `/preview-check` | Live-browser visual sanity check across mobile + desktop viewports |
 
 ## Install
 

@@ -34,7 +34,7 @@
     },
     {
       "name": "dev-workflow",
-      "description": "Slash commands for orchestrated parallel ralphex plan execution, gated PR creation, test-first bug fixing, and visual preview sanity checks.",
+      "description": "Slash commands for orchestrated parallel ralphex plan execution, gated PR creation, and test-first bug fixing.",
       "source": "./plugins/dev-workflow",
       "version": "0.1.0",
       "author": {

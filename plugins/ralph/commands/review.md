@@ -31,8 +31,6 @@ Gather what to walk through:
 
 **Standalone fallback** — if invoked with no prior execute context (no recent plan, no manifest, no review dump): treat the entire diff against `<default-branch>` as the review surface. The implicit ask is "walk me through recent changes that aren't yet reviewed." Do not require a plan file to exist.
 
-If a `/preview-check` report exists in `docs/previews/`, surface its screenshots inline.
-
 ## Step 3 — Interview loop
 
 Invoke the `interview` skill with the framing:
