@@ -60,9 +60,15 @@ Before dispatching any task, determine **how this project runs** and **what can 
 
 ralph the orchestrator manages **no** containers or images itself (unlike ralphex) — it only delegates project commands through `run_prefix`, which may itself enter a container. Record `exec_mode` + `run_prefix` in `env:`.
 
-**2. Dependencies ready? (auto-install, then verify.)** Probe that lean validation can actually run: `<run_prefix> bun run lint` (or a fast `--help` / no-op typecheck), and check `node_modules/.bin`.
-- **Missing / unusable** → **auto-install once on the host, then re-verify** (the chosen policy): Docker project → ensure the container + volume are up (`bun run up`); host-native → `bun install` in the worktree. The orchestrator does this on the **host** at preflight — this is environment setup, not an agent adding a new dependency mid-run, so it is consistent with the "host-side deps only" rule.
-- **Still cannot run lean validation after install → HARD-STOP.** Surface the exact command the user must run. Never dispatch tasks onto a broken environment.
+**2. Dependencies ready? (sanity-check, then auto-install + re-verify.)** Goal: don't dispatch onto a half-installed environment. The trap: `bun run lint`, `--version` / `--help`, and a `node_modules/.bin` listing **all pass on a BROKEN dependency graph** (eslint doesn't resolve module existence by default; version/`.bin` checks import nothing), so none of them is a readiness signal. Verify deps are actually present, escalating only as far as the project supports:
+- **Cheap, universal sanity check (always do this first):** diff the manifest against what is installed — read `dependencies` + `devDependencies` from `package.json` and confirm each resolves under `node_modules` (host-native: the worktree's; Docker: inside the container via `run_prefix`). This catches the common "lockfile/image lists it but it was never actually installed" gap with no dependence on a particular script, package manager, or Docker. A missing entry here is the smoking gun: it sails past lint/`--version` but breaks `typecheck`/build. (Lockfile-vs-`node_modules` staleness — `bun.lock`/`package-lock.json`/`pnpm-lock.yaml` newer than the install — is a fine additional signal.)
+- **Stronger probe when the project has one (preferred over nothing):** if the project defines a module-resolving validation — `typecheck` (tsc → `TS2307`) and/or `test:unit` — run it and treat success as authoritative. If it has neither (no TS, no unit tests, an unconventional or host-only setup), the sanity check above plus whatever validation the project DOES define is sufficient. **Do not invent or require scripts that don't exist**, and do not assume Docker.
+- **Missing / unusable → auto-install once on the host, then re-verify** (host-side deps only):
+  - **Host-native** → the project's installer (`bun install` / `npm ci` / `pnpm i` / `yarn`).
+  - **Docker, volume-mounted node_modules** → `bun run up` (populates the volume), then re-probe.
+  - **Docker that BAKES node_modules into the image** (a `Dockerfile` installs into `/prebuilt_node_modules`, copied into the volume by an init script): `bun run up` only repopulates from the (possibly stale) image and CANNOT fix a partial image — on the host: install → rebuild the image (`image:build` or equivalent) → recreate the container, then re-probe.
+  The orchestrator does this on the **host** at preflight — environment setup, not an agent adding a dependency mid-run, consistent with "host-side deps only".
+- **Calibrate the bar to what the project actually supports.** HARD-STOP (with the exact command for the user) only when the sanity check still shows missing deps, or the project's OWN validation still fails, after remediation. Never block a legitimate host-only or script-light project for lacking `typecheck`/`test:unit`, and never green-light a dispatch on a `lint`/`--version` pass alone.
 
 **3. E2E capability → `e2e:`.**
 - **`unsupported`** — no `test:e2e` script, no `playwright.config`, or no browsers. → lean-only for the whole run; tasks leave `FIXME(e2e)` placeholders (original behavior). State this explicitly at start.
@@ -74,6 +80,17 @@ ralph the orchestrator manages **no** containers or images itself (unlike ralphe
 - **Host-orchestrating entrypoint** — `test:e2e` *itself* decides how to reach the runtime (e.g. branches on an env flag such as `RALPHEX_DOCKER` to enter the container) **and/or** launches sidecars **host-side** (GreenMail/mail, a DB, `compose` services) before running the inner suite. → `e2e_cmd = "bun run test:e2e"` **with no `run_prefix`**. Prefixing it with `bun run dx` would run the orchestrator *inside* the container — skipping the host-side sidecar launch and the env-flag branch — so mail/DB-dependent specs fail. Let the entrypoint own container entry; ralph just invokes it host-side. (The same caution applies to the dev-E2E command below: don't prefix a script that already self-orchestrates.)
 
 Detect the host-orchestrating case from the script body: it shells out to a wrapper (`.sh`/`.ts`), chains `&&`/`compose up`/sidecar startup, or reads a Docker env flag — rather than being a bare `playwright test`. Record `e2e_cmd` in the `env:` block; **S3.5 runs `<e2e_cmd>` verbatim and does not re-prefix it.**
+
+**3c. E2E-runtime readiness (resolve whenever `e2e != unsupported`).** Knowing the E2E command is not enough — the runtime must actually be reachable before declaring E2E runnable. Mirror the deps "attempt once, then re-verify" policy:
+
+1. **Attempt the project's documented start once.** Run `bun run up` (or the project's equivalent compose/dev-up script — whatever the project documents as the way to bring services up) to ensure the Docker daemon, DB, mail (e.g. GreenMail), and any other declared compose services are running. This mirrors the step-2 "auto-install once on the host" policy: one attempt to bring the environment up before probing.
+2. **Verify the runtime is actually reachable** after the start attempt:
+   - **Docker daemon** — `docker info` exits 0 (the daemon is running and reachable from the host).
+   - **Declared sidecars** (DB / GreenMail / compose services) — check that each service the project documents as required for E2E is up or reachable (e.g. `docker compose ps` shows it running, or a lightweight TCP probe succeeds). Read the project's compose file or README to identify which services are required; do not hardcode names.
+3. **If still not ready after the start attempt → degrade `e2e` to not-runnable.** Record the downgrade in the `env:` block (e.g. `e2e: prod-only → not-runnable: docker daemon not responding`). This surfaces the problem early rather than letting it fail late in the S3.5 prod gate, which would appear as a mysterious suite failure rather than an infrastructure issue.
+4. **Reuse the 3b "host-orchestrating entrypoint" classification** — do NOT double-launch sidecars that the `test:e2e` entrypoint already owns host-side. If 3b classified the entrypoint as host-orchestrating (it chains `compose up` / sidecar startup before the inner suite), the readiness check only needs to confirm the Docker daemon is up and let the entrypoint own sidecar startup; do not pre-start the same sidecars here. If 3b classified the entrypoint as a thin runner (bare `playwright test`), sidecars are the orchestrator's responsibility to start and verify.
+
+This step is parameterised for the standard T3 + ZenStack + Better Auth template (Docker-in-container with a `bun run up` compose orchestration and GreenMail + Postgres sidecars), but is generic: it reads the project's documented start command and compose services rather than hardcoding any path.
 
 **4. Worktree isolation (wave only) → `worktree_isolation:`.** `docker-per-worktree` if each worktree can run its own container, else `shared-host`. **Current phase:** per-task dev E2E is **single-mode only** regardless — wave runs lean per-task and gets E2E via the final prod gate on the merged app. This field is recorded for the planned wave-per-task-E2E follow-up but does not change behavior yet.
 
@@ -207,8 +224,17 @@ Skip **only** when `e2e: unsupported`. Otherwise, once the review loop exits cle
 
 - Run the full suite **once** to catch cross-spec interactions and regressions. On failure: rerun **only failing suites** until green — **never** loop the whole suite (same rule as `/ralph e2e` Step 4).
 - **Surfaced bugs are owned.** A failure in a spec this run didn't touch is a real bug — fix the underlying cause, do not `.skip` to green. If the fix is substantial (new design decision, schema migration, >30 lines), STOP and surface to the user as a new finding rather than scope-creeping.
-- Log: `append-progress.sh <progress-file> "[orch] prod E2E gate — <pass | N failing suites>"`.
 - Advance to S4 only once the suite is green, or the user explicitly overrides via AskUserQuestion (fix now / accept red / abort).
+
+**Per-spec duration recording (shard rebalancing) — capability-gated.** A run that adds many new specs leaves the suite's shard balance stale; refreshing it here (on the one mandatory full run) costs nothing extra.
+
+*Detect support* — read the project's `test:e2e` script and `playwright.config` (or equivalent): look for a `--record-durations` flag, a documented durations/reporter mode, or an existing durations file the suite reads for sharding (the standard T3 + ZenStack template uses `tests/e2e/.spec-durations.json` — check the project's own convention; do not hardcode the path). If none of these signals are present, duration recording is unsupported — proceed without it.
+
+*If supported:* enable recording on **this same run** (no extra invocation): pass the appropriate flag or reporter option to `<e2e_cmd>`. The durations file is written as a side-effect of the run the gate would already perform.
+
+*Fallback:* if the gate has already run (e.g. it was retried after a failure and the recording option cannot be combined with a failed-suites rerun) and no durations file was produced, do **one** full recorded rerun — never more. This fallback is a single extra pass, not a loop.
+
+Log: `append-progress.sh <progress-file> "[orch] prod E2E gate — <pass | N failing suites> (durations refreshed)"` when recording ran; `"[orch] prod E2E gate — <pass | N failing suites>"` otherwise.
 
 When `e2e: dev+prod` the per-task specs already passed in dev mode — this gate re-runs them (plus the rest of the suite) against the prod build to catch dev/prod divergence and regressions. When `e2e: prod-only` this is the first E2E run this session.
 
@@ -216,6 +242,7 @@ When `e2e: dev+prod` the per-task specs already passed in dev mode — this gate
 
 - Final lean validation (`lint && typecheck && test:unit`)
 - Ensure all `[ ]` boxes are `[x]`
+- **Commit the refreshed per-spec durations file** (no-op when `e2e: unsupported` — the gate never ran). If S3.5 produced a durations file (e.g. `tests/e2e/.spec-durations.json` or the project's equivalent path — read the project's convention), stage and commit it as a tracked source artifact so future runs pick up the rebalanced shard timings. Skip silently if no durations file was written (recording unsupported or unavailable).
 - Move the plan to `docs/plans/completed/`; commit the move
 - `append-progress.sh <progress-file> "plan complete"` then append a `---` line and `Completed: <timestamp>`
 
@@ -226,10 +253,12 @@ When `e2e: dev+prod` the per-task specs already passed in dev mode — this gate
 If `RALPH_AUTO_PR` is set:
 - user said `"hardened"` / `"with review"` → chain into `/ralph review`
 - otherwise → chain into `/ralph pr` (hardened if E2E passed this run, else lean)
+- then, once the PR exists, chain into `/ralph demo` (capability-permitting — it self-skips if ffmpeg/voice/harness are missing) so the narrated walkthrough lands on the fresh PR. This realizes "demos generated automatically on execution completion."
 
 Otherwise ask via AskUserQuestion:
 - "Visual review (`/ralph review`)" (Recommended)
 - "Create PR now (`/ralph pr`)" — hardened if E2E already passed this run (`e2e != unsupported`), else lean
+- "Generate demo (`/ralph demo`)" — narrated walkthrough video, hosted + linked from the PR
 - "Stop"
 
 ---

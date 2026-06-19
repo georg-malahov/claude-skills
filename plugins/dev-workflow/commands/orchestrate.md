@@ -215,12 +215,7 @@ Merge plan tasks:
 - [ ] E2E: rerun ONLY failing suites on iteration; don't re-run the full suite each time
 - [ ] All must pass before continuing
 
-### Task 5: Preview / screenshot sanity check
-- [ ] Invoke `/preview-check` with the affected routes
-- [ ] Verify mobile + desktop viewports render correctly
-- [ ] Attach the resulting markdown report's screenshots to the PR description (deferred to /create-pr)
-
-### Task 6: Update documentation
+### Task 5: Update documentation
 - [ ] Regenerate architecture diagrams if relevant (`/generate-docs` or equivalent)
 - [ ] Update README/CHANGELOG if user-facing
 ```

@@ -1,14 +1,14 @@
 # ralph
 
-Native Claude-Code agentic loop. A clean replacement for the Docker-hosted ralphex flow, built as a single `/ralph` command with six subcommands. Runs in parallel with the existing `/orchestrate` and `/create-pr` from `dev-workflow` — nothing in this plugin replaces or modifies them.
+Native Claude-Code agentic loop. A clean replacement for the Docker-hosted ralphex flow, built as a single `/ralph` command with seven subcommands. Runs in parallel with the existing `/orchestrate` and `/create-pr` from `dev-workflow` — nothing in this plugin replaces or modifies them.
 
 ## Pipeline
 
 ```
-brainstorm  →  plan  →  execute  →  review  →  e2e  →  pr
-   ↓           ↓ auto    ↓ auto      ↓ accumulate-loops back
-   ↓           single   single        to plan via review-*.md
-   ↓           or       or wave
+brainstorm  →  plan  →  execute  →  review  →  e2e  →  pr  →  demo
+   ↓           ↓ auto    ↓ auto      ↓ accumulate-loops back    ↓ narrated
+   ↓           single   single        to plan via review-*.md   walkthrough,
+   ↓           or       or wave                                 hosted + linked
    ↓           parallel
    ↓
 docs/plans/.scratch/brainstorm-*.md (consumed by plan)
@@ -26,6 +26,7 @@ docs/plans/.scratch/review-*.md (consumed by plan, like brainstorm)
 | `/ralph review [mode]` | Manual visual Q&A via `interview`. Modes: `accumulate` (logs follow-up dump) or `fix-now` (inline small commits). |
 | `/ralph e2e [glob]` | Implement `FIXME(e2e)` placeholders one test at a time, in a separate session. |
 | `/ralph pr [mode]` | Create a PR. Modes: `lean` (lint+type+unit) or `hardened` (adds E2E). Gated. |
+| `/ralph demo [plan]` | Auto-generate a narrated walkthrough video: draft a screenplay from the plan + diff, TTS-voice it, capture it at narration pace in a real browser, mux to subtitled MP4 with chapters, host on S3, link from the PR. Artifacts hosted, not committed. Capability-gated (degrades to silent / local-only / scaffold). |
 
 ## Subcommand independence
 
@@ -119,6 +120,7 @@ If the user's request includes a phrase like `"implement autonomously and create
 - `plan` → chains into `execute` without asking
 - `execute` → chains into `pr` (lean) without asking, or into `review` → `e2e` → `pr` (hardened) if the user also said `"hardened"` / `"with review"` / `"with e2e"`
 - `pr` → skips the "Create PR?" confirmation
+- `pr` → once the PR exists, chains into `demo` (capability-permitting) so the narrated walkthrough is generated and linked on the fresh PR automatically
 
 Without the phrase, every subcommand stops at its natural handoff and asks via `AskUserQuestion`.
 
