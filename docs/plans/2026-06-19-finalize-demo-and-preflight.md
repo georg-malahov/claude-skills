@@ -158,21 +158,21 @@ Narration (TTS audio in `test-results/narration/`) is **viewport-independent**, 
 ### Task 6: Record E2E timings in the S3.5 prod gate (shard rebalancing)
 Many new specs are added during a run, so the suite's shard balance goes stale. The post-review
 full prod gate (S3.5) already runs the whole suite once — the natural place to refresh timings.
-- [ ] In `execute.md` S3.5: when the project supports per-spec duration recording (a
+- [x] In `execute.md` S3.5: when the project supports per-spec duration recording (a
       `--record-durations` flag, a documented durations mode, or an existing
       `tests/e2e/.spec-durations.json` the suite reads for sharding), run the mandatory
       full-suite gate **with timing capture enabled** — no extra run, since S3.5 already runs
       the whole suite once. This refreshes the durations file so the next run's shard balancing
       reflects the specs added this run.
-- [ ] Capability-gate it ("if available"): detect durations support from the project's
+- [x] Capability-gate it ("if available"): detect durations support from the project's
       `test:e2e` script / playwright config (a record-durations flag or an existing
       `.spec-durations.json`). Unsupported → run the gate normally (no behavior change). If the
       gate already ran *without* recording, do ONE recorded rerun of the full suite.
-- [ ] Commit the refreshed durations file in S4 finalize (a tracked source artifact, like the
+- [x] Commit the refreshed durations file in S4 finalize (a tracked source artifact, like the
       plan move) so future runs pick up the rebalanced timings; no-op when `e2e: unsupported`.
-- [ ] Keep generic — read the project's durations convention (the T3 template uses
+- [x] Keep generic — read the project's durations convention (the T3 template uses
       `tests/e2e/.spec-durations.json`); don't hardcode a path.
-- [ ] Static check: re-read S3.5 + S4 for coherence (record once, commit durations, no-op when
+- [x] Static check: re-read S3.5 + S4 for coherence (record once, commit durations, no-op when
       e2e unsupported); grep `spec-durations|record-durations|S3.5` line up.
 
 ### Task 7: Verify

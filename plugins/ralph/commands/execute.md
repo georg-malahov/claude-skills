@@ -224,8 +224,17 @@ Skip **only** when `e2e: unsupported`. Otherwise, once the review loop exits cle
 
 - Run the full suite **once** to catch cross-spec interactions and regressions. On failure: rerun **only failing suites** until green — **never** loop the whole suite (same rule as `/ralph e2e` Step 4).
 - **Surfaced bugs are owned.** A failure in a spec this run didn't touch is a real bug — fix the underlying cause, do not `.skip` to green. If the fix is substantial (new design decision, schema migration, >30 lines), STOP and surface to the user as a new finding rather than scope-creeping.
-- Log: `append-progress.sh <progress-file> "[orch] prod E2E gate — <pass | N failing suites>"`.
 - Advance to S4 only once the suite is green, or the user explicitly overrides via AskUserQuestion (fix now / accept red / abort).
+
+**Per-spec duration recording (shard rebalancing) — capability-gated.** A run that adds many new specs leaves the suite's shard balance stale; refreshing it here (on the one mandatory full run) costs nothing extra.
+
+*Detect support* — read the project's `test:e2e` script and `playwright.config` (or equivalent): look for a `--record-durations` flag, a documented durations/reporter mode, or an existing durations file the suite reads for sharding (the standard T3 + ZenStack template uses `tests/e2e/.spec-durations.json` — check the project's own convention; do not hardcode the path). If none of these signals are present, duration recording is unsupported — proceed without it.
+
+*If supported:* enable recording on **this same run** (no extra invocation): pass the appropriate flag or reporter option to `<e2e_cmd>`. The durations file is written as a side-effect of the run the gate would already perform.
+
+*Fallback:* if the gate has already run (e.g. it was retried after a failure and the recording option cannot be combined with a failed-suites rerun) and no durations file was produced, do **one** full recorded rerun — never more. This fallback is a single extra pass, not a loop.
+
+Log: `append-progress.sh <progress-file> "[orch] prod E2E gate — <pass | N failing suites> (durations refreshed)"` when recording ran; `"[orch] prod E2E gate — <pass | N failing suites>"` otherwise.
 
 When `e2e: dev+prod` the per-task specs already passed in dev mode — this gate re-runs them (plus the rest of the suite) against the prod build to catch dev/prod divergence and regressions. When `e2e: prod-only` this is the first E2E run this session.
 
@@ -233,6 +242,7 @@ When `e2e: dev+prod` the per-task specs already passed in dev mode — this gate
 
 - Final lean validation (`lint && typecheck && test:unit`)
 - Ensure all `[ ]` boxes are `[x]`
+- **Commit the refreshed per-spec durations file** (no-op when `e2e: unsupported` — the gate never ran). If S3.5 produced a durations file (e.g. `tests/e2e/.spec-durations.json` or the project's equivalent path — read the project's convention), stage and commit it as a tracked source artifact so future runs pick up the rebalanced shard timings. Skip silently if no durations file was written (recording unsupported or unavailable).
 - Move the plan to `docs/plans/completed/`; commit the move
 - `append-progress.sh <progress-file> "plan complete"` then append a `---` line and `Completed: <timestamp>`
 
