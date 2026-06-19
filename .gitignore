@@ -7,3 +7,5 @@
 # Editor files
 *.swp
 *~
+__pycache__/
+*.pyc

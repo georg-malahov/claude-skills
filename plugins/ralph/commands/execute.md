@@ -226,10 +226,12 @@ When `e2e: dev+prod` the per-task specs already passed in dev mode — this gate
 If `RALPH_AUTO_PR` is set:
 - user said `"hardened"` / `"with review"` → chain into `/ralph review`
 - otherwise → chain into `/ralph pr` (hardened if E2E passed this run, else lean)
+- then, once the PR exists, chain into `/ralph demo` (capability-permitting — it self-skips if ffmpeg/voice/harness are missing) so the narrated walkthrough lands on the fresh PR. This realizes "demos generated automatically on execution completion."
 
 Otherwise ask via AskUserQuestion:
 - "Visual review (`/ralph review`)" (Recommended)
 - "Create PR now (`/ralph pr`)" — hardened if E2E already passed this run (`e2e != unsupported`), else lean
+- "Generate demo (`/ralph demo`)" — narrated walkthrough video, hosted + linked from the PR
 - "Stop"
 
 ---

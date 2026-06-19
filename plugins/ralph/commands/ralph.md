@@ -1,6 +1,6 @@
 ---
-description: Ralph — native agentic loop. Dispatches to brainstorm | plan | execute | review | e2e | pr.
-argument-hint: '<subcommand> [args]   (brainstorm | plan | execute | review | e2e | pr)'
+description: Ralph — native agentic loop. Dispatches to brainstorm | plan | execute | review | e2e | pr | demo.
+argument-hint: '<subcommand> [args]   (brainstorm | plan | execute | review | e2e | pr | demo)'
 ---
 
 # /ralph — dispatcher
@@ -29,6 +29,7 @@ ralph v<version> — <subcommand>
 | `review` | `commands/review.md` | Manual visual Q&A via `interview`, two modes (accumulate / fix-now) |
 | `e2e` | `commands/e2e.md` | Consume `FIXME(e2e)` placeholders; implement E2E tests one at a time |
 | `pr` | `commands/pr.md` | Create a PR; choose hardening level (lean / hardened) |
+| `demo` | `commands/demo.md` | Auto-generate a narrated walkthrough video (screenplay → TTS → paced capture → mux); host on S3; attach to the PR |
 
 ## Session manifests — resumability
 
@@ -117,6 +118,7 @@ Manifests live in `.scratch/` and accumulate. Periodically (no automated trigger
    - Execute complete, no `docs/plans/.scratch/review-*.md` → suggest `review`
    - Review accumulate dump exists → suggest `plan` (it will be picked up as seed)
    - All boxes checked, no PR → suggest `pr`
+   - PR exists, no demo attached for this branch → suggest `demo` (the visual companion; optional)
    Use AskUserQuestion with the inferred next step as the first (recommended) option.
 
    Plus: scan in-progress session manifests first (see "Session manifests" above) and surface them before suggesting a fresh action.
