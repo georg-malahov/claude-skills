@@ -95,19 +95,19 @@ Narration (TTS audio in `test-results/narration/`) is **viewport-independent**, 
 ## Implementation Steps
 
 ### Task 1: Port + extend the hardened execute preflight
-- [ ] Replace `execute.md` step 2 ("Dependencies ready?") with the hardened cache-0.3.0 text:
+- [x] Replace `execute.md` step 2 ("Dependencies ready?") with the hardened cache-0.3.0 text:
       deps-resolve sanity check (package.json deps+devDeps vs node_modules, host or via
       run_prefix), lockfile staleness signal, `typecheck`/`test:unit` as authoritative probe
       when present, three remediation paths, calibrated HARD-STOP.
-- [ ] Extend E2E capability (step 3 / new "3c — E2E-runtime readiness"): when `e2e != unsupported`,
+- [x] Extend E2E capability (step 3 / new "3c — E2E-runtime readiness"): when `e2e != unsupported`,
       before declaring runnable, **attempt the project's documented start (`bun run up` or
       equivalent) once**, then verify Docker daemon responsive (`docker info`) and declared
       sidecars (DB / GreenMail-mail / compose services) reachable; if still not ready, **degrade
       `e2e` to not-runnable** (record in `env:`) rather than failing late in S3.5. Reuse the 3b
       "host-orchestrating entrypoint" classification — do not double-launch sidecars the
       `test:e2e` entrypoint already owns.
-- [ ] Keep it generic (detect, don't hardcode); mirror the deps "attempt once, then re-verify" policy.
-- [ ] Static check: re-read the edited section for internal consistency with `env:` block,
+- [x] Keep it generic (detect, don't hardcode); mirror the deps "attempt once, then re-verify" policy.
+- [x] Static check: re-read the edited section for internal consistency with `env:` block,
       S3.5, and resume (which re-verifies readiness). Grep that `e2e_cmd` / `env:` references still line up.
 
 ### Task 2: Retire screenshots and delete /preview-check
