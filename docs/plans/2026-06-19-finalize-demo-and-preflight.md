@@ -145,14 +145,14 @@ Narration (TTS audio in `test-results/narration/`) is **viewport-independent**, 
       (no narration dir → builds MP4 + VTT + chapters, no crash).
 
 ### Task 5: Version bump + consistency sync (0.4.1)
-- [ ] `plugins/ralph/.claude-plugin/plugin.json`: 0.4.0 → **0.4.1**.
-- [ ] `plugins/dev-workflow/.claude-plugin/plugin.json`: 0.1.0 → **0.1.1** (touched by Task 2).
-- [ ] `.claude-plugin/marketplace.json`: ralph `version` 0.3.0 → **0.4.1** + refresh description
+- [x] `plugins/ralph/.claude-plugin/plugin.json`: 0.4.0 → **0.4.1**.
+- [x] `plugins/dev-workflow/.claude-plugin/plugin.json`: 0.1.0 → **0.1.1** (touched by Task 2).
+- [x] `.claude-plugin/marketplace.json`: ralph `version` 0.3.0 → **0.4.1** + refresh description
       (add demo) + keywords (add `demo`); dev-workflow 0.1.0 → **0.1.1** + description (drop
       preview-check); process-video unchanged.
-- [ ] root `README.md`: add the missing **ralph** row to the Available Plugins table; update the
+- [x] root `README.md`: add the missing **ralph** row to the Available Plugins table; update the
       dev-workflow row to drop `/preview-check`.
-- [ ] Static check: every `plugin.json` + `marketplace.json` parses as JSON; versions in each
+- [x] Static check: every `plugin.json` + `marketplace.json` parses as JSON; versions in each
       `plugin.json` match its `marketplace.json` entry.
 
 ### Task 6: Record E2E timings in the S3.5 prod gate (shard rebalancing)

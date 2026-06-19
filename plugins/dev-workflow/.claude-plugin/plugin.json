@@ -1,6 +1,6 @@
 {
   "name": "dev-workflow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Slash commands for orchestrated parallel ralphex plan execution, gated PR creation, and test-first bug fixing.",
   "author": {
     "name": "Georg Malahov",

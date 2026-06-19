@@ -22,21 +22,21 @@
     },
     {
       "name": "ralph",
-      "description": "Native Claude-Code agentic loop: brainstorm → plan → execute → review → e2e → pr. Auto-routes single vs parallel-wave mode, with a hardened environment probe driving capability-gated in-loop E2E. Replaces the Docker-hosted ralphex flow; coexists with dev-workflow.",
+      "description": "Native Claude-Code agentic loop: brainstorm → plan → execute → review → e2e → pr → demo. Auto-routes single vs parallel-wave mode, with a hardened environment probe driving capability-gated in-loop E2E. Replaces the Docker-hosted ralphex flow; coexists with dev-workflow. Includes auto-generated narrated walkthrough demos (TTS → paced capture → mux → S3).",
       "source": "./plugins/ralph",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "author": {
         "name": "Georg Malahov",
         "email": "georg@malahov.io"
       },
       "category": "productivity",
-      "keywords": ["ralph", "agentic", "loop", "plan", "execute", "review", "tdd"]
+      "keywords": ["ralph", "agentic", "loop", "plan", "execute", "review", "tdd", "demo"]
     },
     {
       "name": "dev-workflow",
       "description": "Slash commands for orchestrated parallel ralphex plan execution, gated PR creation, and test-first bug fixing.",
       "source": "./plugins/dev-workflow",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Georg Malahov",
         "email": "georg@malahov.io"
