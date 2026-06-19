@@ -136,12 +136,12 @@ Narration (TTS audio in `test-results/narration/`) is **viewport-independent**, 
       mobile-optional-after); confirm no `build-demo.py` flag is referenced that doesn't exist.
 
 ### Task 4: Demo polish — silent-mode guard + HTML-description note
-- [ ] `plugins/ralph/scripts/demo/build-demo.py`: guard missing/empty `narration.json` — when
+- [x] `plugins/ralph/scripts/demo/build-demo.py`: guard missing/empty `narration.json` — when
       absent or `beats` empty, **skip the audio mux** (no `amix=inputs=0`) and transcode
       `webm→mp4` directly; VTT + chapters + page still build from `timing.json`.
-- [ ] `plugins/ralph/commands/demo.md` Step 5: note that the `demo-meta.json` description is
+- [x] `plugins/ralph/commands/demo.md` Step 5: note that the `demo-meta.json` description is
       injected as **inline HTML** (single line; escape `<`/`&` if literal text is intended).
-- [ ] Static check: `python3 -m py_compile build-demo.py`; reason through the silent path
+- [x] Static check: `python3 -m py_compile build-demo.py`; reason through the silent path
       (no narration dir → builds MP4 + VTT + chapters, no crash).
 
 ### Task 5: Version bump + consistency sync (0.4.1)

@@ -10,6 +10,8 @@ Reads:
   --timing        cues: id, scene, caption, atMs, durationMs
                   (default test-results/preview/timing.json — written by the capture spec)
   --narration-dir beats: id, audioFile, durationMs   (default test-results/narration)
+                  narration.json is optional — if absent or empty, a silent subtitled demo
+                  is produced (no audio mux, no amix filter, -an transcode only).
   --meta          optional JSON {title, description} — the demo command writes this
                   from the plan + transcript; falls back to generic strings.
 
@@ -34,7 +36,11 @@ p.add_argument("--lang", default="de")
 a = p.parse_args()
 
 timing = json.load(open(a.timing))["cues"]
-narr = {b["id"]: b for b in json.load(open(os.path.join(a.narration_dir, "narration.json")))["beats"]}
+_narr_path = os.path.join(a.narration_dir, "narration.json")
+if os.path.exists(_narr_path):
+    narr = {b["id"]: b for b in json.load(open(_narr_path))["beats"]}
+else:
+    narr = {}
 timing.sort(key=lambda c: c["atMs"])
 os.makedirs(a.out_dir, exist_ok=True)
 
@@ -55,22 +61,30 @@ def fmt(ms):
 # ── Mux: place each beat's mp3 at its atMs, mix (non-overlapping → full volume) ──
 clips = [(c["id"], c["atMs"]) for c in timing
          if c["id"] in narr and os.path.exists(narr[c["id"]]["audioFile"])]
-inputs = ["-i", a.video_in]
-filt, labels = [], []
-for i, (bid, at) in enumerate(clips, start=1):
-    inputs += ["-i", narr[bid]["audioFile"]]
-    filt.append(f"[{i}]adelay={at}|{at}[au{i}]")
-    labels.append(f"[au{i}]")
-filt.append(f"{''.join(labels)}amix=inputs={len(clips)}:normalize=0:dropout_transition=0[aout]")
 
 mp4 = os.path.join(a.out_dir, "video.mp4")
-subprocess.run(
-    ["ffmpeg", "-y", *inputs,
-     "-filter_complex", ";".join(filt),
-     "-map", "0:v", "-map", "[aout]",
-     "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p",
-     "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", mp4],
-    check=True, capture_output=True)
+if clips:
+    inputs = ["-i", a.video_in]
+    filt, labels = [], []
+    for i, (bid, at) in enumerate(clips, start=1):
+        inputs += ["-i", narr[bid]["audioFile"]]
+        filt.append(f"[{i}]adelay={at}|{at}[au{i}]")
+        labels.append(f"[au{i}]")
+    filt.append(f"{''.join(labels)}amix=inputs={len(clips)}:normalize=0:dropout_transition=0[aout]")
+    subprocess.run(
+        ["ffmpeg", "-y", *inputs,
+         "-filter_complex", ";".join(filt),
+         "-map", "0:v", "-map", "[aout]",
+         "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", mp4],
+        check=True, capture_output=True)
+else:
+    # Silent mode: no narration — transcode video only, no audio track.
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", a.video_in,
+         "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p",
+         "-movflags", "+faststart", "-an", mp4],
+        check=True, capture_output=True)
 
 # ── VTT: continuous cues (each runs until the next beat) ──
 vtt = ["WEBVTT", ""]

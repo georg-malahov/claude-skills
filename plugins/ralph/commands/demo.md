@@ -131,7 +131,11 @@ The spec reads `narration.json`, records each beat's `atMs`, performs the action
 
 ### 5b — Build the demo
 
-Write `demo-meta-<viewport>.json` — a `{title, description}` you generate from the plan + the narration transcript (a short "what this shows, by section" overview; this is the page's intro text). Append a viewport suffix to the title: **" (Desktop)"** or **" (Mobile)"**. Then:
+Write `demo-meta-<viewport>.json` — a `{title, description}` you generate from the plan + the narration transcript (a short "what this shows, by section" overview; this is the page's intro text). Append a viewport suffix to the title: **" (Desktop)"** or **" (Mobile)"**.
+
+> **Note:** the `description` value is injected as **inline HTML** into the player page (a single `<div>`). It renders on one line — use it for a short overview, optionally with an `<a href>`. Escape literal `<` as `&lt;` and `&` as `&amp;` if the text is not intentionally HTML.
+
+Then:
 
 ```bash
 python3 <build-demo.py> test-results/preview-<viewport>/<video>.webm <out-dir>/<viewport> <video-skill-scripts-dir> \
