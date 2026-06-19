@@ -121,18 +121,18 @@ Narration (TTS audio in `test-results/narration/`) is **viewport-independent**, 
 - [x] Static check: `grep -rn "preview-check\|docs/previews" plugins/ README.md .claude-plugin/` returns **zero** hits.
 
 ### Task 3: Add the desktop/mobile viewport step to /ralph demo
-- [ ] Add a viewport-selection step to `plugins/ralph/commands/demo.md` (after the capability
+- [x] Add a viewport-selection step to `plugins/ralph/commands/demo.md` (after the capability
       probe / harness resolve, before capture): AskUserQuestion — "Desktop only" (Recommended,
       default) / "Desktop + Mobile". In RALPH_AUTO_PR / non-interactive mode default to Desktop only.
-- [ ] Restructure Steps 4–6 into a **per-viewport loop, desktop first**: narration (Step 3) runs
+- [x] Restructure Steps 4–6 into a **per-viewport loop, desktop first**: narration (Step 3) runs
       once and is shared; then capture→build→host desktop; then, only if "both" and desktop
       succeeded, capture→build→host mobile reusing the same `narration.json`.
-- [ ] Document the `DEMO_VIEWPORT=desktop|mobile` convention (device + `video.size` + suffixed
+- [x] Document the `DEMO_VIEWPORT=desktop|mobile` convention (device + `video.size` + suffixed
       `outputDir`) and include a recommended `playwright.preview.config.ts` snippet so projects
       wire the switch; note the spec/config remain project-owned.
-- [ ] Per-viewport hosting: distinct out-dir + S3 key (`<slug>-demo-desktop` / `-demo-mobile`)
+- [x] Per-viewport hosting: distinct out-dir + S3 key (`<slug>-demo-desktop` / `-demo-mobile`)
       + `demo-meta.json` title suffix (Desktop/Mobile). PR attach: Desktop primary, Mobile secondary.
-- [ ] Static check: re-read demo.md end-to-end for flow coherence (narration-once, desktop-first,
+- [x] Static check: re-read demo.md end-to-end for flow coherence (narration-once, desktop-first,
       mobile-optional-after); confirm no `build-demo.py` flag is referenced that doesn't exist.
 
 ### Task 4: Demo polish — silent-mode guard + HTML-description note
