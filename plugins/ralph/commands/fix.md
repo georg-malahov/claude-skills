@@ -1,13 +1,17 @@
 ---
-description: Turn multiple bug reports and observations into committed test-first fixes
+description: Ralph fix — turn multiple bug reports/observations into committed test-first fixes.
 argument-hint: 'free text describing one or more bugs/observations, or attached screenshot'
 ---
 
-# Fix-to-Green — Test-First Multi-Bug Squashing
+# /ralph fix — Test-First Multi-Bug Squashing
 
 Take one or many bug reports, observations, code-review comments, or QA notes at once. Categorize each. For real bugs, follow a test-first loop: write a failing test, commit it, write the fix, commit the fix. For non-bug items, apply lighter handling.
 
-Do **not** open a PR at the end. `/create-pr` is a separate explicit step (it has its own validation gate).
+Do **not** open a PR at the end. `/ralph pr` is a separate explicit step (it has its own validation gate).
+
+## Session manifest
+
+Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: fix`. `artifact:` empty (the commits are the output, not a file). Checkpoint after intake confirmation, after the categorization is confirmed, and after each item's fix commit, so an interrupted multi-bug run can be resumed without re-asking.
 
 ## Step 0: Intake
 
@@ -122,7 +126,7 @@ For each `refactor` / `chore` / `doc` item:
 Once all items are addressed, run the **full project validation suite** (see user-level CLAUDE.md "Run validation"):
 
 ```bash
-# In ralphex / container:
+# In a container:
 bun run lint && bun run typecheck && bun run test:unit && bun run test:e2e
 
 # From host with dev container:
@@ -139,7 +143,7 @@ Summarize what was done:
 - Commits created (with messages)
 - Items deferred or unresolved
 - Validation status
-- Reminder: "Run `/create-pr` when ready to open a PR — it has its own validation gate."
+- Reminder: "Run `/ralph pr` when ready to open a PR — it has its own validation gate."
 
 Do **not** auto-open the PR. That's explicit, separate, and gated.
 

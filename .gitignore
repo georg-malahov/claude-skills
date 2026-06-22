@@ -9,3 +9,7 @@
 *~
 __pycache__/
 *.pyc
+
+# Claude Code session state + scratch (never commit)
+.claude/
+.scratch/

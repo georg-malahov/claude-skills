@@ -5,7 +5,7 @@ argument-hint: '[lean | hardened]   (default: ask, unless RALPH_AUTO_PR is set)'
 
 # /ralph pr
 
-Creates a GitHub PR for the current branch. Choice of two modes:
+The standard PR command for this setup (it supersedes the retired `/create-pr`). Creates a GitHub PR for the current branch. Choice of two modes:
 
 - **Lean** — gates on `lint + typecheck + test:unit` only. No E2E, no visual review prerequisite. Fast path for small fixes.
 - **Hardened** — gates on full validation including `test:e2e`. Requires that `/ralph review` and `/ralph e2e` have been run.
@@ -54,10 +54,21 @@ Order: cheapest first, fail-fast.
 
 On failure:
 - Surface failures
-- Offer `/fix-to-green` (existing skill from `dev-workflow`) for actionable failures
+- Offer `/ralph fix` (test-first multi-bug squashing) for actionable failures
 - AskUserQuestion: Fix now and retry / Open as draft anyway / Stop
 
 Do NOT proceed past this step on red, unless the user explicitly opted into draft.
+
+## Step 2.5 — Demo (capability-gated, ask-when-available)
+
+Offer to attach a narrated walkthrough when the project can actually produce one. Most repos have no demo harness — for them this is a silent no-op.
+
+1. **Already built this session?** If `/ralph demo` produced a hosted demo for this branch this session (a recorded `DEMO_URL_*` / the demo session manifest), reuse that URL — skip to Step 3.
+2. **Probe whether a demo is possible** (same gate as `/ralph demo` Step 0/1): `ffmpeg` + a wired capture harness (`tests/preview/*-demo.spec.*` + a `screenplay.*.ts` + a `playwright.preview.config.*`) + S3 credentials. If any is missing → **skip silently** (optionally note that `/ralph demo` can scaffold a harness).
+3. **Demo possible and not yet built:**
+   - `RALPH_AUTO_PR` set → **auto-generate** a desktop demo (no prompt): run the `/ralph demo` pipeline (narration → desktop capture → build → host) and capture `DEMO_URL_desktop`.
+   - Otherwise → **ask** via AskUserQuestion: "A demo harness is available — generate a desktop walkthrough for this PR? (heavy: E2E-class capture + mux + upload, needs the app running)" → "Generate desktop demo" / "Skip". Generate only on explicit yes.
+4. Hold the resulting URL(s) for the Demo line in Step 3 / the body in Step 5. **Desktop-only here** — mobile stays an explicit `/ralph demo` choice, never auto-run from the PR hook.
 
 ## Step 3 — Build PR content
 
