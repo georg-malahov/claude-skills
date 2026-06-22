@@ -1,6 +1,6 @@
 ---
-description: Ralph — native agentic loop. Dispatches to brainstorm | plan | execute | review | e2e | pr | demo.
-argument-hint: '<subcommand> [args]   (brainstorm | plan | execute | review | e2e | pr | demo)'
+description: Ralph — native agentic loop. Dispatches to brainstorm | plan | execute | review | e2e | pr | demo | fix.
+argument-hint: '<subcommand> [args]   (brainstorm | plan | execute | review | e2e | pr | demo | fix)'
 ---
 
 # /ralph — dispatcher
@@ -30,6 +30,7 @@ ralph v<version> — <subcommand>
 | `e2e` | `commands/e2e.md` | Consume `FIXME(e2e)` placeholders; implement E2E tests one at a time |
 | `pr` | `commands/pr.md` | Create a PR; choose hardening level (lean / hardened) |
 | `demo` | `commands/demo.md` | Auto-generate a narrated walkthrough video (screenplay → TTS → paced capture → mux); host on S3; attach to the PR |
+| `fix` | `commands/fix.md` | Turn a batch of bug reports/observations into committed test-first fixes (ad-hoc; not part of the linear pipeline) |
 
 ## Session manifests — resumability
 
@@ -41,7 +42,7 @@ One file per session at `docs/plans/.scratch/session-<YYYY-MM-DD-HHmm>-<slug>.md
 
 ```markdown
 ---
-kind: brainstorm | plan | execute | review | e2e | pr
+kind: brainstorm | plan | execute | review | e2e | pr | demo | fix
 status: in_progress | completed | abandoned
 started: <ISO timestamp>
 updated: <ISO timestamp>
@@ -137,4 +138,4 @@ Manifests live in `.scratch/` and accumulate. Periodically (no automated trigger
 - **Lean validation** = `lint → typecheck → test:unit`, run through the probed `run_prefix` (empty on host, `bun run dx` in-container). Full E2E (`test:e2e`) runs inside `/ralph e2e`, inside `pr` hardened mode, and — whenever E2E is available — as the mandatory post-review gate (S3.5) in `/ralph execute`.
 - **Never auto-create a PR** unless the user opted in via the autonomous-mode phrase (rule 2).
 - **Three-tier override chain** for agents and prompts: `.claude/ralph/{agents,prompts}/<name>.md` (project) → `${CLAUDE_PLUGIN_ROOT}/agents,prompts/<name>.md` (bundled) → fail loud.
-- Coexists with `/orchestrate` and `/create-pr` — do not call them; ralph is a parallel track.
+- Ralph is the single workflow plugin — it absorbed the retired `dev-workflow` (`/create-pr` → `/ralph pr`, `/fix-to-green` → `/ralph fix`, `/orchestrate` → `/ralph plan` + `/ralph execute` wave mode).

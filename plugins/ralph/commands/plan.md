@@ -23,7 +23,7 @@ Create per dispatcher spec. `kind: plan`. `artifact:` initially empty; once the 
 
 ## Step 2 — Grill (interview-driven)
 
-Invoke the `interview` skill with the grill framing — same probes as `/orchestrate plan` Step P1, distilled here:
+Invoke the `interview` skill with the grill framing — the parallel-decomposition probes, distilled here:
 
 - What are the distinct work streams?
 - For each pair: do they depend on each other or are they independent?
@@ -91,7 +91,7 @@ No manifest needed. Tell user: `/ralph execute` to run it.
 
 ## Step 4b — Parallel mode
 
-Mirror the `/orchestrate plan` Steps P2–P5 logic:
+Decompose-and-merge logic:
 
 1. **Decompose** into waves (foundation → parallel tracks → sequential follow-ups → merge wave).
 2. **Validate** plan sizes (3–6 tasks each) and challenge dependencies — can they be eliminated with mocks?

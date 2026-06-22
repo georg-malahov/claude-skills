@@ -1,6 +1,6 @@
 # ralph
 
-Native Claude-Code agentic loop. A clean replacement for the Docker-hosted ralphex flow, built as a single `/ralph` command with seven subcommands. Runs in parallel with the existing `/orchestrate` and `/create-pr` from `dev-workflow` — nothing in this plugin replaces or modifies them.
+Native Claude-Code agentic loop. A clean replacement for the Docker-hosted ralphex flow, built as a single `/ralph` command with eight subcommands. It is the single workflow plugin — it absorbed the retired `dev-workflow` (`/create-pr` → `/ralph pr`, `/fix-to-green` → `/ralph fix`, `/orchestrate` → `/ralph plan` + `/ralph execute` wave mode).
 
 ## Pipeline
 
@@ -27,6 +27,7 @@ docs/plans/.scratch/review-*.md (consumed by plan, like brainstorm)
 | `/ralph e2e [glob]` | Implement `FIXME(e2e)` placeholders one test at a time, in a separate session. |
 | `/ralph pr [mode]` | Create a PR. Modes: `lean` (lint+type+unit) or `hardened` (adds E2E). Gated. |
 | `/ralph demo [plan]` | Auto-generate a narrated walkthrough video: draft a screenplay from the plan + diff, TTS-voice it, capture it at narration pace in a real browser, mux to subtitled MP4 with chapters, host on S3, link from the PR. Artifacts hosted, not committed. Capability-gated (degrades to silent / local-only / scaffold). |
+| `/ralph fix [reports]` | Turn a batch of bug reports/observations into committed **test-first** fixes (failing test → commit → fix → commit, per bug). Ad-hoc utility, not part of the linear pipeline. |
 
 ## Subcommand independence
 
@@ -124,9 +125,9 @@ If the user's request includes a phrase like `"implement autonomously and create
 
 Without the phrase, every subcommand stops at its natural handoff and asks via `AskUserQuestion`.
 
-## Coexistence with `/orchestrate` and `/create-pr`
+## Retired: `dev-workflow`
 
-This plugin is purely additive. `/orchestrate` (the ralphex-driven flow) keeps working unchanged. `/create-pr` keeps working unchanged. Use whichever fits the project — `/ralph` for new work, `/orchestrate` for projects already invested in the Docker flow.
+The `dev-workflow` plugin (`/orchestrate`, `/create-pr`, `/fix-to-green`) has been retired and folded into ralph: `/create-pr` → `/ralph pr`, `/fix-to-green` → `/ralph fix`, and the ralphex-driven `/orchestrate` parallel flow → native `/ralph plan` + `/ralph execute` (wave mode), which needs no Docker/ralphex binary.
 
 ## Loop budgets (matches originals)
 
