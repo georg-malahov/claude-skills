@@ -11,10 +11,11 @@ Usage:
 
 import sys
 import os
-import json
 import argparse
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from s3_util import load_s3_credentials, aws_env, public_url
 
 MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -26,46 +27,17 @@ MIME_TYPES = {
     ".srt": "text/plain; charset=utf-8",
     ".md": "text/plain; charset=utf-8",
     ".json": "application/json",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
 }
 
 # Files to upload (by extension). Skip raw Deepgram JSON and temp files.
 # .md covers developer-analysis block briefs (served as raw text for in-browser viewing).
-UPLOAD_EXTENSIONS = {".html", ".mp4", ".webm", ".vtt", ".srt", ".mov", ".md"}
-
-
-def load_s3_credentials(credential_dir):
-    """Load S3 credentials from file or environment."""
-    # Check environment first
-    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    endpoint = os.environ.get("S3_ENDPOINT")
-    bucket = os.environ.get("S3_BUCKET")
-
-    if access_key and secret_key and endpoint and bucket:
-        return {"endpoint": endpoint, "bucket": bucket, "access_key": access_key, "secret_key": secret_key}
-
-    # Read from credential file
-    cred_file = os.path.join(credential_dir, "s3_credentials")
-    if not os.path.isfile(cred_file):
-        print("Error: S3 credentials not found. Set environment variables or create "
-              f"{cred_file}", file=sys.stderr)
-        sys.exit(1)
-
-    creds = {}
-    with open(cred_file) as f:
-        for line in f:
-            line = line.strip()
-            if "=" in line and not line.startswith("#"):
-                k, v = line.split("=", 1)
-                creds[k.strip()] = v.strip()
-
-    required = ["endpoint", "bucket", "access_key", "secret_key"]
-    for key in required:
-        if key not in creds:
-            print(f"Error: missing '{key}' in {cred_file}", file=sys.stderr)
-            sys.exit(1)
-
-    return creds
+UPLOAD_EXTENSIONS = {".html", ".mp4", ".webm", ".vtt", ".srt", ".mov", ".md",
+                     ".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
 def discover_files(folder_path):
@@ -88,9 +60,7 @@ def discover_files(folder_path):
 
 def upload_file(file_info, s3_path, creds):
     """Upload a single file to S3. Returns (name, success, message)."""
-    env = os.environ.copy()
-    env["AWS_ACCESS_KEY_ID"] = creds["access_key"]
-    env["AWS_SECRET_ACCESS_KEY"] = creds["secret_key"]
+    env = aws_env(creds)
 
     cmd = [
         "aws", "--endpoint-url", creds["endpoint"],
@@ -152,10 +122,8 @@ def main():
                 failed += 1
                 print(f"[ERROR] Failed {name}: {msg}", flush=True)
 
-    # Build public URL
-    # Hetzner format: https://<bucket>.<region>.your-objectstorage.com/<path>
-    endpoint = creds["endpoint"].replace("https://", "")
-    base_url = f"https://{creds['bucket']}.{endpoint}/{s3_path}/index.html"
+    # Build public URL (Hetzner: https://<bucket>.<region>.your-objectstorage.com/<path>)
+    base_url = public_url(creds, f"{s3_path}/index.html")
 
     if failed > 0:
         print(f"\n[ERROR] {failed}/{total} files failed to upload", flush=True)

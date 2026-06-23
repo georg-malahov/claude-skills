@@ -137,18 +137,14 @@ def transcribe(video_path, output_dir, video_base, credential_dir, language=None
 
     start = time.time()
     print("[PROGRESS] Transcribing via Deepgram Nova 3...", flush=True)
-    ok, stdout, stderr = run_cmd(cmd, timeout=300)
+    ok, stdout, stderr = run_cmd(cmd, timeout=960)
     elapsed = time.time() - start
 
     if ok:
         # Count entries
         if os.path.exists(srt_path):
             with open(srt_path) as f:
-                entries = f.read().count("\n-->") + f.read().count(" --> ")
-            # Re-read for accurate count
-            with open(srt_path) as f:
-                content = f.read()
-                entries = content.count(" --> ")
+                entries = f.read().count(" --> ")
             print(f"[PROGRESS] Transcription complete: {entries} entries ({elapsed:.0f}s)", flush=True)
         if stdout.strip():
             print(stdout.strip(), flush=True)
