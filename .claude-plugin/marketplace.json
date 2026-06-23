@@ -22,9 +22,9 @@
     },
     {
       "name": "ralph",
-      "description": "Native Claude-Code agentic loop: brainstorm → plan → execute → review → e2e → pr → demo (+ ad-hoc fix). Auto-routes single vs parallel-wave mode, with a hardened environment probe driving capability-gated in-loop E2E. Replaces the Docker-hosted ralphex flow and the retired dev-workflow plugin. Includes auto-generated narrated walkthrough demos (TTS → paced capture → mux → S3).",
+      "description": "Native Claude-Code agentic loop: brainstorm → plan → execute → review → e2e → pr → demo (+ ad-hoc fix). Auto-routes single vs parallel-wave mode, with a hardened environment probe driving capability-gated in-loop E2E and a stall watchdog that recovers hung/silently-killed agents and reports periodic progress. Replaces the Docker-hosted ralphex flow and the retired dev-workflow plugin. Includes auto-generated narrated walkthrough demos (TTS → paced capture → mux → S3).",
       "source": "./plugins/ralph",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "author": {
         "name": "Georg Malahov",
         "email": "georg@malahov.io"

@@ -11,12 +11,29 @@ Runs the ralph-loop natively. **ralph itself orchestrates no containers or image
 
 `/ralph execute` does **not** block the session for the whole run. It is an **event-driven orchestrator**: each time it is invoked it reconciles state, does ONE step, and ends its turn. The session returns to you between steps — you can ask for status or intervene at any time.
 
-It gets invoked three ways:
+It gets invoked four ways:
 1. You type `/ralph execute` (fresh start or resume).
 2. A background subagent completes — the harness **automatically re-invokes** the orchestrator (no polling, no sleep).
 3. You send a message while agents run (e.g. "check progress", "pause").
+4. **A watchdog wakeup fires** — a fallback timer scheduled at each dispatch (see "Stall watchdog" below) re-invokes the orchestrator even when a dispatched agent never completes.
 
 **On every invocation, the orchestrator runs the RECONCILE procedure** (below), does one step, ends the turn. Durable state lives in two files, not in the conversation: the plan file (`[ ]`/`[x]` boxes) and the session manifest (checkpoint log). The progress file (`${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt`) is live telemetry — useful while the run is in flight, not relied on for resume. Any invocation can rebuild full context from the plan + manifest.
+
+### Stall watchdog — survive hung / silently-killed agents
+
+The completion notification in trigger (2) is the **happy path only**. A background `ralph-task` can come to rest **without** firing a usable completion — it hangs on a wedged command, is killed externally, or ends its turn mid-task — and then the orchestrator is never re-invoked and the whole run silently stalls (the background-tasks panel keeps showing it "Running" for hours). The event-driven model therefore MUST carry its own fallback timer; never rely solely on the completion event.
+
+**At every background dispatch (S1 / W1), immediately schedule a fallback watchdog wakeup** with `ScheduleWakeup` so the orchestrator is guaranteed to re-enter even if no completion arrives:
+
+- `delaySeconds`: **600** (10 min) — long enough that a healthy task usually completes first and the wakeup is a no-op; short enough to bound the stall. (Wave mode: one wakeup is enough for the whole fleet — it reconciles all plans. Re-arm it each dispatch so the latest in-flight task is covered.)
+- `prompt`: the same `/ralph execute` input verbatim (so the firing re-enters this skill and runs RECONCILE). For an autonomous run pass the autonomous sentinel as usual.
+- `reason`: e.g. `"watchdog: re-check Task N (id <agent-id>) for stall"`.
+
+If `ScheduleWakeup` is unavailable in the current session, fall back to instructing the user once: "the run will advance on each completion, but if an agent hangs, send me 'check progress' to unstick it." Prefer the scheduled wakeup whenever the tool exists.
+
+A normal completion that arrives before the wakeup simply makes the next RECONCILE find nothing stale — the pending wakeup then fires once, no-ops (STALL-CHECK sees the task already `completed`), and is replaced by the next dispatch's wakeup. Re-arming every dispatch keeps exactly one fallback live without unbounded accumulation.
+
+**The wakeup doubles as a progress heartbeat.** When it fires and STALL-CHECK finds the task *genuinely still working* (not stalled), it does not stay silent — it reports a one-line status (task N/M, elapsed, last progress-file line) and re-arms. So a long but healthy task produces a periodic proactive update exactly while it is in flight, with no separate `/loop`: the same self-arming timer covers both stall recovery and progress reporting, and reaction to a real completion stays instant via the harness re-invoke.
 
 ## Step 0 — Mode detection
 
@@ -145,6 +162,13 @@ Process events in this order — a user message and a subagent completion can la
    - anything else → answer it. If a subagent also completed this invocation (step 3 applies), fall through; otherwise end the turn (agents keep running).
 3. **Check for a just-completed background subagent** whose result you have not yet processed (its task id is recorded in the session manifest as `running`):
    - If found → go to **S2 — Task verdict**.
+3a. **STALL-CHECK** — if the manifest still records a task as `running` but **no** completion is pending this invocation (i.e. this is a watchdog wakeup, or you were re-invoked for another reason while a task is mid-flight):
+   - **Reconcile against ground truth, not the notification.** Read the actual state: the **tail of the progress file**, the task's plan `[ ]`/`[x]` boxes, `git log -1` / `git status` for an uncommitted-but-complete tree, and the agent's elapsed time / liveness (the background-tasks panel or `TaskList`/`TaskGet` if loaded).
+   - **Already green** (boxes checked + commit landed) → the completion event was simply missed; mark it `completed` in the manifest and fall through to RECONCILE (dispatch the next task). 
+   - **Work done but uncommitted / boxes unchecked** (the common "rested mid-task" or "killed at the finish line" case) → finish it deterministically yourself: run lean validation (+ the task's dev-E2E spec when `E2E_PER_TASK`), and if green, check the boxes and commit on the task's behalf, then mark `completed`. This is the orchestrator closing out a near-complete task, not new feature work.
+   - **Stalled with little/no real progress** (progress file untouched well beyond the watchdog interval, agent clearly wedged) → treat as a failed dispatch: `TaskStop` the wedged agent (its id is in the manifest; `ToolSearch` for `TaskStop` if not loaded), log `[orch] Task N — stalled, killed by watchdog`, and apply the S2 step-4 failure path (first stall → re-dispatch once; second → surface via AskUserQuestion). Re-arm the watchdog for the new dispatch.
+   - **Genuinely still working** (progress file advanced within the interval) → do **not** kill a healthy long-running task. Emit a **progress heartbeat** to the user — the task number + title, its elapsed time, and the **last line of the progress file** — then re-arm a fresh watchdog wakeup and end the turn. This is the periodic proactive status report (the harness still re-invokes you instantly on completion, so the heartbeat only ever fires while a task is genuinely mid-flight):
+     > ⏳ Task N/M "<title>" still running (~<elapsed>). Last progress: `<tail of progress file>`. Watchdog re-armed; I'll report in again or continue the moment it completes.
 4. **If no subagent is running and `[ ]` tasks remain** → go to **S1 — Dispatch**.
 5. **If no subagent is running and no `[ ]` tasks remain** → go to **S3 — Review loop**.
 
@@ -161,10 +185,11 @@ Outer safety cap: **50 dispatches** total. The count is durable — the orchestr
    - **If `e2e: dev+prod` and single mode**: also pass `E2E_PER_TASK: on`, the resolved **dev-E2E command** (from pre-flight), and the **dev base URL**. These activate the task contract's "Dev-mode E2E variant" (`prompts/task.md`) — the task authors and runs its own spec instead of leaving a `FIXME(e2e)` placeholder. For `prod-only` / `unsupported` (and all wave tasks) pass nothing extra: the task keeps the default no-E2E contract.
 4. Log: `append-progress.sh <progress-file> "[orch] dispatched ralph-task (sonnet) — Task N: <title>"`.
 5. Record the task id as `running` in the session manifest and **increment its `dispatches:` counter** (the durable dispatch count the RECONCILE cap reads).
-6. **End the turn** with a status line:
-   > Task N/M dispatched in background. Session is free — ask "check progress" anytime. I'll continue automatically when it completes.
+6. **Arm the stall watchdog** — call `ScheduleWakeup` (`delaySeconds: 600`, the verbatim `/ralph execute` prompt, a `reason` naming Task N + agent id) so a fallback re-invocation is guaranteed even if the completion never fires (see "Stall watchdog"). One live wakeup at a time — each dispatch re-arms it.
+7. **End the turn** with a status line:
+   > Task N/M dispatched in background. Session is free — ask "check progress" anytime. I'll continue automatically when it completes (and a 10-min watchdog will unstick it if it hangs).
 
-Do NOT wait. Do NOT poll. The harness re-invokes you on completion.
+Do NOT wait. Do NOT poll with `sleep`/blocking loops. The harness re-invokes you on completion; the watchdog wakeup is the fallback for a missed completion — these two triggers, not busy-waiting, drive the loop.
 
 ### S2 — Task verdict (on background completion)
 
@@ -306,6 +331,7 @@ Ensure `.ralph/` is gitignored once (command above). Then for each plan in the c
 2. Init the plan's progress file: `${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` (flat temp-dir namespace — one place to read them all).
 3. Dispatch the plan's **first** `[ ]` task as a background `ralph-task` (`run_in_background: true`), with the dispatch prompt carrying the **worktree root absolute path** plus everything from S1 step 3.
 4. Record each plan's in-flight task id in the manifest's Execution Log.
+5. **Arm the stall watchdog once for the wave** — a single `ScheduleWakeup` (`delaySeconds: 600`, verbatim `/ralph execute` prompt) covers the whole fleet: when it fires, W-RECONCILE's STALL-CHECK runs across every plan. Re-arm on each subsequent dispatch so the latest in-flight tasks stay covered.
 
 All N first-tasks launch together — that is the parallelism.
 
