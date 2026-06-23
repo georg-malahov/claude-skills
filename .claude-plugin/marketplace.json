@@ -10,15 +10,15 @@
   "plugins": [
     {
       "name": "process-video",
-      "description": "Process videos: optimize for web, transcribe audio with Deepgram Nova 3, add subtitles in any language, translate, and burn into video with customizable styles.",
+      "description": "Process videos: optimize for web, transcribe with Deepgram Nova 3 or a cheaper Gemini analysis engine (audio transcript-cheap + dev-video screen analysis with auto screenshots), add subtitles in any language, translate, and burn into video with customizable styles.",
       "source": "./plugins/process-video",
-      "version": "3.1.0",
+      "version": "3.2.0",
       "author": {
         "name": "Georg Malahov",
         "email": "georg@malahov.io"
       },
       "category": "productivity",
-      "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram"]
+      "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram", "gemini", "analysis"]
     },
     {
       "name": "ralph",

@@ -18,6 +18,8 @@ import subprocess
 import argparse
 import tempfile
 
+from subtitle_util import format_srt_time, srt_to_vtt
+
 DEEPGRAM_URL = "https://api.deepgram.com/v1/listen"
 DEFAULT_CREDENTIAL_DIR = os.path.expanduser("~/.config/video-skill")
 
@@ -95,13 +97,13 @@ def transcribe_deepgram(audio_path, api_key, language=None):
 
     # Use curl for reliable binary upload (urllib can mangle large binary POSTs)
     cmd = [
-        "curl", "-s", "-w", "\n%{http_code}",
+        "curl", "-s", "-w", "\n%{http_code}", "--max-time", "900",
         "-X", "POST", url,
         "-H", f"Authorization: Token {api_key}",
         "-H", "Content-Type: audio/wav",
         "--data-binary", f"@{audio_path}",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=960)
     if result.returncode != 0:
         print(f"curl error: {result.stderr}", file=sys.stderr)
         sys.exit(1)
@@ -115,35 +117,6 @@ def transcribe_deepgram(audio_path, api_key, language=None):
         sys.exit(1)
 
     return json.loads(body)
-
-
-def format_srt_time(seconds):
-    """Convert seconds to SRT time format: HH:MM:SS,mmm"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    millis = int((seconds % 1) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
-
-def format_vtt_time(seconds):
-    """Convert seconds to WebVTT time format: HH:MM:SS.mmm"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    millis = int((seconds % 1) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
-
-
-def srt_to_vtt(srt_content):
-    """Convert SRT content to WebVTT format."""
-    vtt_lines = ["WEBVTT", ""]
-    for line in srt_content.split("\n"):
-        # Convert SRT timestamps (comma) to VTT (dot)
-        if " --> " in line:
-            line = line.replace(",", ".")
-        vtt_lines.append(line)
-    return "\n".join(vtt_lines)
 
 
 def json_to_srt(dg_response):

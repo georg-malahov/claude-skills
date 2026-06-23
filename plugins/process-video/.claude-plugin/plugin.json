@@ -1,12 +1,12 @@
 {
   "name": "process-video",
-  "version": "3.1.0",
-  "description": "Process and share videos: optimize for web, transcribe with Deepgram Nova 3, subtitles, and share via S3 or local tunnel with short URLs.",
+  "version": "3.2.0",
+  "description": "Process and share videos: optimize for web, transcribe with Deepgram Nova 3 or a cheaper Gemini engine (audio transcript-cheap + dev-video screen analysis with auto screenshots), add subtitles, and share via S3 or local tunnel with short URLs.",
   "author": {
     "name": "Georg Malahov",
     "email": "georg@malahov.io"
   },
   "repository": "https://github.com/georg-malahov/claude-skills",
   "license": "MIT",
-  "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram"]
+  "keywords": ["video", "subtitles", "transcription", "ffmpeg", "deepgram", "gemini", "analysis"]
 }

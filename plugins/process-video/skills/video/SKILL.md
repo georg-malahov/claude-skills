@@ -25,13 +25,15 @@ Process and share videos using ffmpeg, Deepgram Nova 3, and S3/tunnel sharing.
 - `ffmpeg` and `ffprobe` must be installed
 - Python 3 must be available
 - `aws` CLI must be available (for S3 uploads)
-- Deepgram API key — needed for transcription/subtitles
+- Deepgram API key — for audio transcription/subtitles (default engine)
+- OpenRouter API key — for the Gemini analysis engine (`dev-video` / `transcript-cheap` modes). Optional; only needed when those modes are selected.
 
 ## Directories
 
 - **Scripts:** `<skill_dir>/scripts/` — all Python scripts and the player.html template
 - **Credentials:** `~/.config/video-skill/` — persistent across plugin updates
   - `deepgram_token` — single-line Deepgram API key
+  - `openrouter_token` — single-line OpenRouter API key (Gemini analysis engine)
   - `s3_credentials` — key=value format (endpoint, bucket, access_key, secret_key)
 - **Preferences:** `~/.config/video-skill/preferences.json` — user choices saved across sessions
 
@@ -40,6 +42,8 @@ Process and share videos using ffmpeg, Deepgram Nova 3, and S3/tunnel sharing.
 If credentials are missing when needed, ask the user via `AskUserQuestion`:
 
 **Deepgram:** Check `DEEPGRAM_API_KEY` env, then `~/.config/video-skill/deepgram_token` file. If neither exists, ask the user and save to the file.
+
+**OpenRouter:** Check `OPENROUTER_TOKEN` env, then `~/.config/video-skill/openrouter_token` file. Only needed for `dev-video` / `transcript-cheap` analysis modes. If a Gemini mode is selected and the token is missing, ask the user and save to the file.
 
 **S3:** Check env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_ENDPOINT`, `S3_BUCKET`), then `~/.config/video-skill/s3_credentials`. If missing, ask the user for endpoint, bucket, access_key, secret_key and save.
 
@@ -63,16 +67,27 @@ If credentials are missing when needed, ask the user via `AskUserQuestion`:
   "target_language": "ru",
   "download_button": true,
   "passcode": true,
-  "developer_analysis": false
+  "mode": "subtitles"
 }
 ```
 
-`developer_analysis`: when `true`, the model generates a "Developer Analysis"
-section (bugs / UX issues / open questions / prioritized action items) from the
-transcript and embeds it in the rendered page, **and additionally produces
-per-block "implementation briefs" as Markdown files** (see "Developer-analysis
-block briefs" below). Useful for screencasts that review a tool, comment on
-bugs, or give product/UX feedback. Off by default.
+`mode`: a single field that decides the transcript/analysis engine. One of four
+values (the old `analysis_mode` + `developer_analysis` pair collapsed into this):
+
+| `mode` | Engine | Subtitles | Developer analysis | Use when |
+|--------|--------|-----------|--------------------|----------|
+| `subtitles` (default) | Deepgram | **precise** | no | normal share, just want captions |
+| `dev-audio` | Deepgram | **precise** | yes (from transcript text) | tool/bug feedback, want clean captions too |
+| `dev-video` | Gemini video | coarse | **yes + screenshots** | richest tool/UX feedback (reads the screen) |
+| `transcript-cheap` | Gemini audio | coarse | no | cheap rough transcript, timing not critical |
+
+Internally: `subtitles`/`dev-audio` run `process_and_share.py` (the latter with
+`--developer-analysis`); `dev-video`/`transcript-cheap` run the Gemini engine
+(`gemini_analyze.py`). "Developer analysis" = the in-page analysis block **plus**
+the Analysis Markdown artifact (see that section). Engine guidance (research
+2026-06): keep **Deepgram for precise subtitles**; use **Gemini-video for
+analysis**, **Gemini-audio for cheap rough transcripts**. For `dev-video` where
+precise captions also matter, additionally run a Deepgram pass for the track.
 
 **Saving:** After every interactive choice, update `preferences.json`. Always save `last_folder` after every run.
 **Loading:** Read at start. Use saved values as "(Recommended)" defaults. In silent mode, use directly.
@@ -88,7 +103,10 @@ All scripts are in `<skill_dir>/scripts/`. They accept `--credential-dir` for cr
 | `upload_s3.py` | Upload folder to S3 | `<folder> --key <key> --credential-dir` |
 | `render_page.py` | Generate index.html from template | `--output-dir --template --metadata` |
 | `manage_registry.py` | Registry CRUD (add/remove/list/get/migrate) | `<subcommand> --share-folder` |
+| `partial_update.py` | Re-render + re-upload a shared folder (resolves key from registry, forwards passcode) | `<output_folder> [--key]` |
+| `font_name.py` | Print a TTF's internal family name (for ASS `Fontname`) | `<font.ttf>` |
 | `transcribe.py` | Deepgram transcription → SRT + VTT | `<video> --credential-dir [--language]` |
+| `gemini_analyze.py` | Gemini engine: audio transcript OR video analysis + screenshots | `<video> --mode audio\|video --output-dir --credential-dir [--key]` |
 | `burn_subtitles.py` | Burn subtitles into video | `<video> <srt> [--font --fontsize ...]` |
 | `share_server.py` | Local HTTP server for tunnel sharing | `<share_root> [--port]` |
 
@@ -158,8 +176,12 @@ One confirmation, one script execution, minimal interaction.
    ```
    Options: **Proceed (Recommended)** / **Switch to interactive mode**
 
-5. Run the main workflow script. Pass `--developer-analysis` if the saved
-   preference (`developer_analysis: true`) is set:
+   **If `mode` is `dev-video` or `transcript-cheap`**, do not run
+   `process_and_share.py` — follow the "Gemini analysis engine" section instead
+   (silently, using saved preferences), then still upload + register the share.
+
+5. Run the main workflow script. Pass `--developer-analysis` when `mode` is
+   `dev-audio`:
    ```bash
    python3 "<scripts>/process_and_share.py" "<video_path>" \
        --output-dir "<output_folder>" \
@@ -174,54 +196,15 @@ One confirmation, one script execution, minimal interaction.
    ```
 
 6. **Monitor stdout for `METADATA_READY:`** — when the script prints this marker:
-   a. Read the `TRANSCRIPT_PREVIEW:` and `METADATA_INFO:` that preceded it
-   b. Parse `METADATA_INFO:` as JSON to get video_filename, vtt_filename,
-      subtitle_lang, and `developer_analysis` (boolean)
-   c. Generate title, description, and 4-8 chapters from the transcript preview
-   d. **If `developer_analysis` is true**, also generate a structured analysis
-      block from the *full* transcript (read the SRT/VTT in the output dir, do
-      not rely on the truncated preview). The block must group findings into
-      Bugs / UX issues / Open questions / Action items split by priority — same
-      structure as the system-review-2026-04-09 page. Write the analysis as raw
-      HTML using these CSS classes from the template:
-      `severity-high`, `severity-mittel`, `severity-niedrig`, `severity-critical`,
-      `task-list`, `priority-section priority-{critical,high,medium,low}`,
-      `priority-label`, `summary-box`, `question-list`,
-      `<a class="timestamp" data-time="<seconds>">~MM:SS</a>` for clickable jumps.
-      Match the page language (RU / DE / EN — same as the transcript).
-   d2. **If `developer_analysis` is true, ALSO generate per-block "implementation
-      briefs" as Markdown files — this is a mandatory default of the analysis
-      step, not optional.** See "Developer-analysis block briefs" below for the
-      full contract. In short: partition the full transcript into semantic
-      blocks, write one `NN-<slug>-brief.md` per block into the output dir, and
-      add a `block_briefs` array to `metadata.json`. The rendered page then shows
-      a clickable "Implementation Briefs" box (rendered preview modal + raw
-      links); the `.md` files upload automatically with the folder.
-   e. Write `metadata.json` to the output directory:
-      ```json
-      {
-        "title": "Generated Title",
-        "description": "Generated description...",
-        "chapters": [{"time": 0, "label": "Intro"}, ...],
-        "video_filename": "video_1080p.mp4",
-        "subtitle_tracks": [{"src": "video.vtt", "srclang": "en", "label": "English", "default": true}],
-        "analysis": {
-          "title": "Анализ для разработчика",
-          "collapse_label": "Свернуть",
-          "expand_label": "Развернуть",
-          "html": "<blockquote>...</blockquote><hr><h2>Баги</h2>..."
-        },
-        "block_briefs": [
-          {"num": "01", "name": "Layout & Navigation", "changes": "~10", "file": "01-layout-navigation-brief.md"},
-          {"num": "02", "name": "Calendar", "changes": "~9", "file": "02-calendar-brief.md"}
-        ]
-      }
-      ```
-      Omit the `analysis` AND `block_briefs` keys entirely when
-      `developer_analysis` is false. When it is true, include both. Optional
-      localisation keys `block_briefs_title` / `block_briefs_intro` override the
-      English box heading/intro to match the page language.
-   f. The script detects metadata.json and continues automatically.
+   a. Read the `TRANSCRIPT_PREVIEW:` and `METADATA_INFO:` that preceded it.
+   b. Generate title, description, and 4-8 chapters from the transcript preview.
+   c. **If `mode` is `dev-audio`** (developer analysis on): build the analysis
+      block **and** the Analysis Markdown from the *full* transcript (read the
+      SRT/VTT in the output dir, not the truncated preview). See the
+      **"metadata.json reference"** and **"Analysis Markdown"** sections for the
+      exact shape and contract. Match the page language (RU / DE / EN).
+   d. Write `metadata.json` to the output dir per the **metadata.json reference**.
+   e. The script detects metadata.json and continues automatically.
 
 7. Script finishes. Display result, link is already copied to clipboard.
 
@@ -268,14 +251,16 @@ Ask three questions via `AskUserQuestion`:
 - Add subtitles in another language (translate)
 - No subtitles
 
-**Q3: Developer analysis** — Save to `preferences.json` → `developer_analysis`
-- Off (Recommended for general videos)
-- Generate developer analysis (bugs / UX / priorities) — for tool reviews & bug reports
+**Q3: Analysis mode** — Save the chosen value to `preferences.json` → `mode`.
+Four options (map 1:1 to the `mode` enum in Preferences):
+- **Subtitles only (Deepgram)** (Recommended for general videos) → `subtitles`
+- **Developer analysis from audio (Deepgram)** — bugs/UX/priorities, precise subtitles → `dev-audio`
+- **Developer analysis from VIDEO (Gemini)** — reads the screen, embeds screenshots (Recommended for tool/UX feedback) → `dev-video`
+- **Cheap audio transcript (Gemini)** — subtitles only, approximate timing → `transcript-cheap`
 
-When on, the model produces an "Analysis" section embedded in the rendered
-page: bugs with severity and timestamps, UX issues, open questions, and
-prioritized action items. See the silent-mode section above for the exact
-metadata.json shape and CSS classes to use.
+`subtitles`/`dev-audio` use the standard `process_and_share.py` flow;
+`dev-video`/`transcript-cheap` use the **Gemini analysis engine**
+(`gemini_analyze.py`). The choice is saved and reused as the default next run.
 
 #### Step 4: Encoding Settings
 
@@ -339,6 +324,81 @@ If translation was requested (Step 3), the translation itself is done by Claude 
 4. Then runs `burn_subtitles.py` manually if burning was requested
 
 **After the script completes**, show summary table (ffprobe both files) and report results.
+
+## Gemini analysis engine (`dev-video` / `transcript-cheap`)
+
+Used when `mode` is `dev-video` or `transcript-cheap`. Driven by
+`gemini_analyze.py`, which reads `openrouter_token` + `s3_credentials` from
+`--credential-dir`. It prints `[PROGRESS]`/`[COST]` lines and (video mode) a final
+`RESULT_JSON:` line. **Never pass tokens as CLI args** — the script reads files.
+
+### `transcript-cheap` — cheap transcript → subtitles
+```bash
+python3 "<scripts>/gemini_analyze.py" "<video>" --mode audio \
+    --output-dir "<output_folder>" --credential-dir ~/.config/video-skill
+```
+Extracts a compact mp3, sends it inline to Gemini, writes `video.srt` + `video.vtt`.
+Then encode the playback video, build `metadata.json` (with `subtitle_tracks`, no
+analysis), render, and upload like a normal share. **Timing is approximate** — fine
+for rough captions, not tight ones.
+
+### `dev-video` — full visual analysis with screenshots
+This path does **not** use `process_and_share.py`. Steps:
+
+1. **Encode the playback video** for the page (normal 1080p), e.g.
+   `ffmpeg -i <video> -vf scale=1920:-2 -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k -movflags +faststart "<out>/video_1080p.mp4"`.
+   Pick/confirm the S3 `<key>` for this share now (the engine uploads a temp proxy under it).
+
+2. **Run the engine** (encodes a ≤15 MiB fps=1 proxy, uploads it, calls Gemini once
+   for analysis **+** transcript, extracts a `shot-<sec>.jpg` frame at every finding
+   and visual-detail timestamp, writes `video.srt`/`video.vtt`, deletes the temp proxy):
+   ```bash
+   python3 "<scripts>/gemini_analyze.py" "<video>" --mode video \
+       --output-dir "<output_folder>" --credential-dir ~/.config/video-skill \
+       --key "<share_key>"
+   ```
+   Parse the `RESULT_JSON:` line → `{analysis, screenshots, transcript_file, cost}`.
+   `analysis` has: `title, description, summary, language, chapters[], findings[]`
+   (`type` bug|ux|idea, `severity`, `time`, `ui`, `verbatim`), `visual_details[]`,
+   `questions[]`, `tasks[]`, `transcript`.
+
+3. **Build the Analysis Markdown** (`dev-analysis.md`) in the output dir, embedding
+   screenshots via **absolute public URLs** — see the **"Analysis Markdown"** section.
+
+4. **Write `metadata.json`** per the **"metadata.json reference"** section:
+   title/description/chapters from `analysis`; `subtitle_tracks` → `video.vtt`;
+   `analysis.html` from the findings; and a `block_briefs` entry pointing at
+   `dev-analysis.md`. In the analysis HTML, **embed each screenshot** with this
+   figure pattern so the image opens the lightbox and the caption seeks the player:
+   ```html
+   <figure>
+     <img class="zoomable" src="shot-540.jpg" alt="<caption>" loading="lazy"
+          style="display:block;width:360px;max-width:100%;border:1px solid #2a2a2a;border-radius:6px">
+     <figcaption style="font-size:0.75rem;color:#888">
+       <a class="timestamp" data-time="540">▶ 09:00</a> · <caption></figcaption>
+   </figure>
+   ```
+
+5. **Render + upload** (`render_page.py` then `upload_s3.py`, reusing `<key>`;
+   uploads `.jpg`/`.png`/`.md` automatically). Register with `manage_registry.py`.
+
+**Verify visual claims before trusting them:** Gemini occasionally misreads on-screen
+text (e.g. product name, button labels). Open a few `shot-*.jpg` and correct the
+`ui`/`verbatim`/labels in `dev-analysis.md` + the analysis HTML.
+
+### Player features (automatic — no manual steps)
+`player.html` already provides: the markdown preview modal + lazy `marked.js`, the
+**⧉ Copy** button (copies raw markdown incl. image URLs), the image **lightbox**
+(click any analysis/preview screenshot → full-screen; click again or Esc to close),
+and chapter/timestamp clicks that smooth-scroll the player into view. You only
+supply `block_briefs` + the figure markup above.
+
+### Cost & engine notes (research 2026-06)
+- dev-video ≈ **$0.03** / 14 min; transcript-cheap ≈ **$0.015** / 14 min;
+  Deepgram Nova-3 ≈ $0.0043/min (~$0.06 / 14 min) but gives precise word timing.
+- Gemini's combined call returns a **coarse** transcript (few markers) and has a
+  known timestamp-drift issue. For tight captions, prefer Deepgram. Gemini wins on
+  cheap rough transcripts and on visual analysis audio cannot capture.
 
 ## Vertical Video / Instagram Reels
 
@@ -426,26 +486,10 @@ curl -sL "<raw_url>" -o ~/Library/Fonts/FontName-Weight.ttf
 file ~/Library/Fonts/FontName-Weight.ttf
 
 # 4. Read the exact internal family name (nameID=1) — this is what goes in the ASS Style line
-python3 - <<'EOF'
-with open('/path/to/font.ttf', 'rb') as f: data = f.read()
-import struct
-numTables = struct.unpack('>H', data[4:6])[0]
-tables = {}
-for i in range(numTables):
-    rec = data[12+i*16:28+i*16]
-    tables[rec[:4].decode('ascii','replace')] = struct.unpack('>II', rec[8:16])
-off, ln = tables['name']
-nd = data[off:off+ln]
-count, strOff = struct.unpack('>HH', nd[2:6])
-for i in range(count):
-    pid, eid, lid, nid, slen, soff = struct.unpack('>HHHHHH', nd[6+i*12:18+i*12])
-    s = nd[strOff+soff:strOff+soff+slen]
-    if nid in (1,2,4) and pid == 3:
-        try: print(f'nameID={nid}: {s.decode("utf-16-be")}')
-        except: pass
-EOF
+python3 "<scripts>/font_name.py" ~/Library/Fonts/FontName-Weight.ttf
+#   → family (nameID=1): <use this as Fontname>
 
-# 5. Use nameID=1 value as FontName in the ASS Style line
+# 5. Use the family name as FontName in the ASS Style line
 # 6. Pass fontsdir= to the ass filter so libass finds the font
 ```
 
@@ -465,87 +509,103 @@ Deepgram sometimes produces overlapping timestamps and multi-sentence chunks. Cl
 - Target 3–5 seconds per cue for Reels; longer is fine for screencasts
 - Fix ASR errors (proper nouns, brand names, foreign words) by editing the `.srt` and `.vtt` files directly
 
-## Developer-analysis block briefs
+## metadata.json reference
 
-When `developer_analysis` is `true`, the analysis step does **two** things: the
-in-page "Developer Analysis" HTML block (above) **and** a set of standalone
-**implementation briefs** — one Markdown file per semantic block of the video.
-This is a default, not an extra request. The rendered page links each brief in a
-clickable "Implementation Briefs" box (rendered-preview modal + raw `.md`
-links), and the `.md` files upload automatically with the folder.
+The single source of truth for the rendered-page metadata. Both the Deepgram flow
+(silent/interactive) and the Gemini engine write this same file; only the deltas
+noted below differ.
 
-### What to produce
+```json
+{
+  "title": "Generated Title",
+  "description": "Generated description...",
+  "chapters": [{"time": 0, "label": "Intro"}, ...],
+  "video_filename": "video_1080p.mp4",
+  "subtitle_tracks": [{"src": "video.vtt", "srclang": "de", "label": "Deutsch", "default": false}],
 
-1. **Partition the full transcript into semantic blocks** (topics/areas the
-   speaker covers — e.g. Layout, Calendar, Communication, …). Order the blocks
-   **largest → smallest by number of changes/requirements**. Read the full
-   SRT/VTT in the output dir, not the truncated preview.
+  "analysis": {                          // developer-analysis modes only
+    "title": "Entwickler-Analyse",       // localise per page language
+    "collapse_label": "Einklappen",
+    "expand_label": "Ausklappen",
+    "html": "<blockquote>...</blockquote><hr><h2>Bugs</h2>..."
+  },
+  "block_briefs": [                       // developer-analysis modes only
+    {"num": "01", "name": "Layout & Navigation", "changes": "~10", "file": "01-layout-navigation-brief.md"}
+  ],
+  "block_briefs_title": "…",             // optional, localise the box heading
+  "block_briefs_intro": "…"              // optional, localise the box intro
+}
+```
 
-2. **Write one brief per block** into the output directory, named
-   `NN-<slug>-brief.md` (`01-…`, `02-…`, zero-padded, matching the order). Each
-   brief contains, in this order:
-   - **Title** (`# <Block> — Implementation Block Brief`).
-   - **App context** — a few lines so the brief is self-contained, plus an index
-     of all blocks (number · name · file) so they cross-link.
-   - **Requirements** — concrete, numbered, each with `(~MM:SS)` timestamp(s)
-     into the video. Convert the speaker's fuzzy wording into clear requirements;
-     flag genuinely open decisions.
-   - **Suggested sequencing** — short ordered build plan + cross-block deps.
-   - **Verbatim appendix** — the block's raw transcript span(s) with `[MM:SS]`
-     markers. **Partition rule: every transcript segment belongs to exactly one
-     block, so the union of all appendices reproduces the ENTIRE transcript —
-     nothing dropped.** (Verify segment counts add up.)
+- **`analysis.html`** — raw HTML using these template CSS classes: `severity-high`,
+  `severity-mittel`, `severity-niedrig`, `severity-critical`, `task-list`,
+  `priority-section priority-{critical,high,medium,low}`, `priority-label`,
+  `summary-box`, `question-list`, and `<a class="timestamp" data-time="<seconds>">~MM:SS</a>`
+  for clickable jumps. `dev-video` additionally embeds `<figure>` screenshots (see
+  the engine section's figure pattern).
+- **`block_briefs`** — each item `{"num","name","changes","file"}` (`num`/`changes`
+  optional; `name`+`file` required). `render_page.py` turns this into the clickable
+  preview box automatically — **never hand-write that box HTML**.
+- **Omit `analysis` + `block_briefs`** entirely for `subtitles` / `transcript-cheap`
+  modes. Include both for `dev-audio` / `dev-video`.
 
-   Match the page language (RU / DE / EN — same as the transcript). If a later
-   meeting/audio revisits the same topics, fold it in as a second "Appendix B"
-   and add a short "Meeting update" note per affected brief.
+## Analysis Markdown
 
-3. **Add a `block_briefs` array to `metadata.json`** (see the metadata example in
-   the silent-mode flow). Each item: `{"num","name","changes","file"}` (`num`
-   and `changes` optional; `name`+`file` required). `render_page.py` turns this
-   into the linked box automatically — do **not** hand-write the box HTML.
-   Optional `block_briefs_title` / `block_briefs_intro` localise the heading.
+When `mode` is `dev-audio` or `dev-video`, the analysis step produces — besides the
+in-page analysis HTML — **standalone Markdown** registered via `block_briefs` and
+shown in the page's preview modal (rendered + a ⧉ Copy button + raw `.md` link).
+`render_page.py` builds the box; `upload_s3.py` uploads the `.md` (served
+`text/plain`) and any screenshots automatically.
 
-### How it renders & uploads (already wired — no manual steps)
+**One file or many — same artifact, pick by scope:**
+- **One file** (`dev-analysis.md`) — default for a focused video (one tool/area).
+  `dev-video` always uses this, with embedded screenshots.
+- **Per-block files** (`NN-<slug>-brief.md`, `01-…` zero-padded, ordered
+  largest→smallest by # of changes) — when the video covers **many distinct areas**
+  and you want each implementable in its own session. Each brief carries an index of
+  all blocks so they cross-link.
 
-- `render_page.py` reads `block_briefs` and prepends the "Implementation Briefs"
-  box to the analysis block. Preview links carry `data-md`; `player.html` fetches
-  the `.md`, renders it with a lazy-loaded `marked.js`, and shows it in a modal
-  (falls back to raw text if the CDN is blocked). Each row also has a "raw ↗"
-  link to the raw file.
-- `upload_s3.py` uploads `.md` files (served `text/plain; charset=utf-8`, so raw
-  links open inline). Just make sure the briefs are in the output dir before the
-  upload step. For an already-shared page, drop new/edited `.md` into the folder
-  and re-run the upload (see Partial Update).
+**Each file contains, in order:**
+1. **Title** + a context block (product, source, video-page URL) — self-contained.
+2. **Context for agents** — app model, navigation, key entities.
+3. **Summary** + a chapters table.
+4. **Findings** (Bugs / UX / Ideas), each with: an embedded screenshot when one
+   exists (**absolute public URL** `https://<bucket>.<endpoint>/sharing-videos/<key>/shot-<sec>.jpg`
+   so downstream LLMs can fetch it), a plain observation, severity, and a
+   **verbatim quote** (`**Verbatim [MM:SS]:** "…"`).
+5. **Open questions** + a prioritized task checklist.
+6. **Appendix — full verbatim transcript** with `[MM:SS]` markers. For per-block
+   files the **partition rule** applies: every transcript segment belongs to exactly
+   one block, so the union of all appendices reproduces the ENTIRE transcript —
+   nothing dropped (verify the segment counts add up).
+
+Match the page language (DE/EN/RU). If a later meeting/audio revisits the topics,
+fold it in as "Appendix B" + a short "Meeting update" note per affected file.
 
 ## Partial Update (re-render / re-upload only)
 
-To fix metadata, subtitles, or fonts on an already-shared video without re-encoding:
+To fix metadata, subtitles, screenshots, or fonts on an already-shared video
+without re-encoding: edit `metadata.json` / `.srt` / `.vtt` / `.md` in the output
+folder, then run the one-step wrapper — it resolves the S3 key from the registry
+and forwards the registered passcode automatically:
 
 ```bash
-SKILL_DIR="~/.claude/plugins/cache/georg-malahov-claude-skills/process-video/3.1.0/skills/video"
-
-# 1. Edit metadata.json and/or .srt/.vtt in the output folder
-
-# 2. Re-render the player page
-python3 "$SKILL_DIR/scripts/render_page.py" \
-    --output-dir "<output_folder>" \
-    --template "$SKILL_DIR/scripts/player.html" \
-    --metadata "<output_folder>/metadata.json"
-
-# 3. Re-upload (reuses the existing S3 key)
-python3 "$SKILL_DIR/scripts/upload_s3.py" \
-    "<output_folder>" \
-    --key "<existing_key>" \
+python3 "<scripts>/partial_update.py" "<output_folder>" \
     --credential-dir ~/.config/video-skill
+# pass --key <key> if the folder isn't in the registry
 ```
 
-The S3 key is in `<share_folder>/.share_registry.json`.
+`partial_update.py` just composes `render_page.py` + `upload_s3.py`; run them
+directly only if you need to override something. The S3 key is in
+`<share_folder>/.share_registry.json`.
 
 ## Error Handling
 
 - **ffmpeg not installed:** Tell user `brew install ffmpeg`
 - **Deepgram 401:** Token expired. Ask for new token via `AskUserQuestion`, save to `~/.config/video-skill/deepgram_token`, re-run
+- **OpenRouter 401/insufficient credits:** Ask for a new key, save to `~/.config/video-skill/openrouter_token`, re-run. (`gemini_analyze.py` only.)
+- **Gemini URL fetch "File content exceeded the size limit":** the proxy is over ~15 MiB. `gemini_analyze.py` escalates compression automatically; if it still fails, the source is unusually long — lower fps or split the video.
+- **Gemini returned no JSON (video mode):** raw saved to `<output>/_analysis_raw.txt`; inspect and retry, or fall back to an audio mode.
 - **S3 credentials missing:** Ask user for endpoint, bucket, access_key, secret_key. Save to `~/.config/video-skill/s3_credentials`
 - **No audio track:** Skip transcription. Use filename as title, or ask user for context
 - **Script exits non-zero:** Read stderr for error details, report to user

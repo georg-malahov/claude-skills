@@ -102,7 +102,19 @@ video { width: 100%; display: block; }
 .markdown-body table { border-collapse: collapse; margin: 14px 0; width: 100%; font-size: 0.85rem; }
 .markdown-body th, .markdown-body td { border: 1px solid #2a2a2a; padding: 6px 10px; text-align: left; }
 .markdown-body th { background: #1e1e1e; color: #e8e8e8; }
+.md-modal-head #mdModalCopy { background: none; border: 1px solid #2a3a2a; color: #9ad; font-size: 0.8rem; padding: 3px 9px; border-radius: 5px; cursor: pointer; margin-right: 6px; line-height: 1.3; }
+.md-modal-head #mdModalCopy:hover { background: #1a241a; color: #cfe; }
 @media (max-width: 640px) { .md-modal-box { margin: 10px; max-height: calc(100vh - 20px); } }
+
+/* Zoomable screenshots + image lightbox */
+.analysis figure { display: inline-block; margin: 10px 10px 4px 0; vertical-align: top; }
+.analysis figure figcaption { margin-top: 3px; }
+.analysis img.zoomable, .md-modal-body img { cursor: zoom-in; }
+.md-modal-body img { max-width: 100%; border: 1px solid #2a2a2a; border-radius: 6px; }
+#imgLightbox { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,0.92); cursor: zoom-out; }
+#imgLightbox img { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); max-width: 96vw; max-height: 94vh; border-radius: 6px; box-shadow: 0 10px 50px rgba(0,0,0,0.6); cursor: zoom-out; }
+#imgLightboxClose { position: absolute; top: 14px; right: 20px; background: none; border: none; color: #fff; font-size: 1.9rem; cursor: pointer; line-height: 1; }
+#imgLightboxCap { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); color: #ddd; font-size: 0.85rem; background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 6px; max-width: 90vw; text-align: center; }
 </style>
 </head>
 <body>
@@ -147,12 +159,20 @@ video { width: 100%; display: block; }
     <div class="md-modal-head">
       <span id="mdModalTitle"></span>
       <span style="white-space:nowrap">
+        <button id="mdModalCopy" title="Copy markdown (with image URLs) to clipboard">⧉ Copy</button>
         <a id="mdModalRaw" href="#" target="_blank" rel="noopener">raw&nbsp;↗</a>
         <button id="mdModalClose" aria-label="Close" title="Close (Esc)">✕</button>
       </span>
     </div>
     <div id="mdModalBody" class="md-modal-body markdown-body"></div>
   </div>
+</div>
+
+<!-- Image lightbox (zoom screenshots in analysis + markdown preview) -->
+<div id="imgLightbox" style="display:none">
+  <button id="imgLightboxClose" aria-label="Close" title="Close (Esc)">✕</button>
+  <img id="imgLightboxImg" alt="">
+  <div id="imgLightboxCap"></div>
 </div>
 
 <script>
@@ -216,6 +236,7 @@ video { width: 100%; display: block; }
       el.addEventListener("click", function() {
         video.currentTime = ch.time;
         video.play();
+        video.scrollIntoView({ behavior: "smooth", block: "center" });
       });
       chaptersList.appendChild(el);
     });
@@ -266,6 +287,8 @@ video { width: 100%; display: block; }
     var mdBody = document.getElementById("mdModalBody");
     var mdTitle = document.getElementById("mdModalTitle");
     var mdRaw = document.getElementById("mdModalRaw");
+    var mdCopy = document.getElementById("mdModalCopy");
+    var currentMdText = "";
 
     function ensureMarked(cb) {
       if (window.marked) { cb(); return; }
@@ -280,12 +303,14 @@ video { width: 100%; display: block; }
       mdTitle.textContent = title || url;
       mdRaw.href = url;
       mdBody.innerHTML = '<p style="color:#888">Loading…</p>';
+      currentMdText = "";
       mdModal.style.display = "block";
       document.body.style.overflow = "hidden";
       fetch(url).then(function(r) {
         if (!r.ok) throw new Error(r.status);
         return r.text();
       }).then(function(txt) {
+        currentMdText = txt;
         ensureMarked(function(err) {
           if (err || !window.marked) {
             mdBody.innerHTML = '<pre style="white-space:pre-wrap">' + escapeHtml(txt) + "</pre>";
@@ -308,12 +333,69 @@ video { width: 100%; display: block; }
     document.addEventListener("keydown", function(e) {
       if (e.key === "Escape" && mdModal.style.display === "block") closeMd();
     });
+
+    if (mdCopy) {
+      mdCopy.addEventListener("click", function() {
+        if (!currentMdText) return;
+        var done = function() {
+          var prev = mdCopy.textContent;
+          mdCopy.textContent = "✓ Copied";
+          setTimeout(function() { mdCopy.textContent = prev; }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(currentMdText).then(done, function() {
+            window.prompt("Copy markdown:", currentMdText);
+          });
+        } else {
+          window.prompt("Copy markdown:", currentMdText);
+        }
+      });
+    }
     mdLinks.forEach(function(el) {
       el.addEventListener("click", function(e) {
         e.preventDefault();
         openMd(el.getAttribute("data-md"), el.getAttribute("data-title") || el.textContent.trim());
       });
     });
+  }
+
+  // Image lightbox — click any screenshot in the analysis or the markdown
+  // preview to view it enlarged (no navigation to the video file).
+  var lb = document.getElementById("imgLightbox");
+  if (lb) {
+    var lbImg = document.getElementById("imgLightboxImg");
+    var lbCap = document.getElementById("imgLightboxCap");
+    var mdModalEl = document.getElementById("mdModal");
+    function openLightbox(src, cap) {
+      lbImg.src = src;
+      lbImg.alt = cap || "";
+      lbCap.textContent = cap || "";
+      lbCap.style.display = cap ? "block" : "none";
+      lb.style.display = "block";
+      document.body.style.overflow = "hidden";
+    }
+    function closeLightbox() {
+      lb.style.display = "none";
+      lbImg.src = "";
+      // keep scroll locked if the markdown modal is still open underneath
+      document.body.style.overflow =
+        (mdModalEl && mdModalEl.style.display === "block") ? "hidden" : "";
+    }
+    document.addEventListener("click", function(e) {
+      var t = e.target;
+      if (t && t.tagName === "IMG" && (t.closest(".analysis") || t.closest(".md-modal-body"))) {
+        e.preventDefault();
+        openLightbox(t.getAttribute("data-full") || t.src, t.getAttribute("alt"));
+      }
+    });
+    // A click anywhere in the lightbox — including on the image itself — closes it.
+    lb.addEventListener("click", closeLightbox);
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape" && lb.style.display === "block") {
+        e.stopPropagation();
+        closeLightbox();
+      }
+    }, true);
   }
 
   function formatTime(secs) {
