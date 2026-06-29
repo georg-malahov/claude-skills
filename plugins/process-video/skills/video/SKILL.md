@@ -20,6 +20,32 @@ allowed-tools:
 
 Process and share videos using ffmpeg, Deepgram Nova 3, and S3/tunnel sharing.
 
+## Default: lighter video, same resolution
+
+**Always re-encode to a smaller file at the source's own resolution by default.** A
+compressed, same-resolution copy is almost always what the user wants — faster
+uploads, lighter shares, identical viewing experience. Make this the default in
+every flow (silent, interactive, and the Gemini `dev-video` playback encode); only
+deviate when the user explicitly says otherwise. Concretely:
+
+- **Default optimization = `--resolution keep`** — re-encode with libx264 + CRF and
+  **no scale filter**, so the resolution is unchanged and the file just gets smaller.
+  This is the recommended Q1 choice and the silent-mode default.
+- **Only downscale** (e.g. to 1080p) when the source is materially larger than 1080p
+  (≥1440p / 4K) or the user asks. **Never upscale.**
+- **Only skip the re-encode** (use the untouched original / stream-copy) when the user
+  **explicitly asks** for the original — e.g. "keep the original", "don't re-encode".
+- **Safety check:** after encoding, compare the output size to the source. If it isn't
+  meaningfully smaller (rare — e.g. an already-low-bitrate source), raise CRF (26–28)
+  or fall back to the original. Screen recordings compress especially well: CRF 24–26
+  with `preset slow` routinely cuts 70–80 % while keeping on-screen text crisp.
+- **Download buttons:** the page shows a **single "Download Video"** button by default
+  (it points at the playback video). Only add a **"Download Original"** button — i.e.
+  pass `render_page.py --original-filename <name>` — when you actually upload the
+  untouched original into the output folder under that exact name; otherwise the button
+  links to a missing file and 404s. The default compress-keep flow keeps no separate
+  original, so **do not pass `--original-filename`**.
+
 ## Prerequisites
 
 - `ffmpeg` and `ffprobe` must be installed
@@ -57,7 +83,7 @@ If credentials are missing when needed, ask the user via `AskUserQuestion`:
   "last_folder": "/Users/example/screencasts",
   "share_folder": "/Users/example/screencasts",
   "sharing_method": "s3",
-  "optimization": "web-1080p",
+  "optimization": "compress-keep",
   "crf": 23,
   "preset": "medium",
   "audio": "aac-128k",
@@ -70,6 +96,12 @@ If credentials are missing when needed, ask the user via `AskUserQuestion`:
   "mode": "subtitles"
 }
 ```
+
+`optimization`: how the playback video is encoded. Default **`compress-keep`** =
+re-encode lighter at the source resolution (`--resolution keep`). Other values:
+`web-1080p` (downscale to 1080p — for ≥1440p/4K sources), `custom`, `keep-original`
+(no re-encode — only on explicit user request). See **"Default: lighter video, same
+resolution"** above.
 
 `mode`: a single field that decides the transcript/analysis engine. One of four
 values (the old `analysis_mode` + `developer_analysis` pair collapsed into this):
@@ -168,7 +200,7 @@ One confirmation, one script execution, minimal interaction.
 4. Show confirmation:
    ```
    Quick share: demo.mov
-   → 1080p, CRF 23, AAC 128k
+   → same resolution · compressed (CRF 23) · AAC 128k
    → Transcribe + subtitles (track)
    → Share via S3 (permanent link)
    → Passcode: 482910
@@ -187,13 +219,16 @@ One confirmation, one script execution, minimal interaction.
        --output-dir "<output_folder>" \
        --share-folder "<share_folder>" \
        --credential-dir ~/.config/video-skill \
-       --resolution 1080p --crf 23 --preset medium --audio aac-128k \
+       --resolution keep --crf 23 --preset medium --audio aac-128k \
        --subtitles track \
        --share s3 \
        --passcode "<passcode>" \
        [--developer-analysis] \
        [--context "<user_context>"]
    ```
+   Default `--resolution keep` (compress, same resolution). Use `--resolution 1080p`
+   only if the source is ≥1440p/4K, or `keep-original` handling if the user explicitly
+   wants the untouched file.
 
 6. **Monitor stdout for `METADATA_READY:`** — when the script prints this marker:
    a. Read the `TRANSCRIPT_PREVIEW:` and `METADATA_INFO:` that preceded it.
@@ -240,10 +275,14 @@ Save `last_folder` to preferences.
 Ask three questions via `AskUserQuestion`:
 
 **Q1: Video optimization** — Save to `preferences.json` → `optimization`
-- Optimize for web (1080p) (Recommended)
-- Optimize for web (keep resolution)
-- Custom settings
-- Keep original
+- **Compress, keep resolution** — lighter file, same resolution (Recommended) → `compress-keep`
+- Downscale to 1080p — only worth it for ≥1440p/4K sources → `web-1080p`
+- Custom settings → `custom`
+- Keep original — no re-encode, only on explicit request → `keep-original`
+
+(Default to **Compress, keep resolution** per **"Default: lighter video, same
+resolution"**. Pick "Keep original" only when the user explicitly asks for the
+untouched file.)
 
 **Q2: Subtitles** — Save to `preferences.json` → `subtitles`
 - Add subtitles in original language (track only, not burned)
@@ -268,7 +307,7 @@ If web optimization selected, show default table and ask "Proceed or customize?"
 
 | Setting | Value |
 |---------|-------|
-| Resolution | 1920×1080 (aspect ratio preserved) |
+| Resolution | Source resolution, unchanged (`keep`) — downscale to 1080p only for ≥1440p/4K |
 | Codec | H.264 (libx264) |
 | CRF | 23 |
 | Preset | medium |
@@ -282,7 +321,7 @@ If custom: ask Resolution, CRF, Preset, Audio individually. Save each to prefere
 **Build the confirmation summary:**
 ```
 Will process: video.mov (3840×2160, 3:44, 305 MB)
-→ 1080p, CRF 23, medium, AAC 128k
+→ downscaled to 1080p (source is 4K), CRF 23, medium, AAC 128k
 → Transcribe + subtitles as track
 → Developer analysis: yes
 → Share via S3
@@ -305,6 +344,10 @@ python3 "<scripts>/process_and_share.py" "<video_path>" \
     [--developer-analysis] \
     [--download-button | --no-download-button]
 ```
+
+Map `optimization` → `--resolution`: `compress-keep` → `keep` (default), `web-1080p`
+→ `1080p`, `custom` → the chosen value. For `keep-original`, skip `process_and_share.py`'s
+re-encode entirely and share the source as-is (only when the user explicitly asked).
 
 **Monitor stdout for `METADATA_READY:`** — same as silent mode step 6.
 
@@ -345,8 +388,13 @@ for rough captions, not tight ones.
 ### `dev-video` — full visual analysis with screenshots
 This path does **not** use `process_and_share.py`. Steps:
 
-1. **Encode the playback video** for the page (normal 1080p), e.g.
-   `ffmpeg -i <video> -vf scale=1920:-2 -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k -movflags +faststart "<out>/video_1080p.mp4"`.
+1. **Encode the playback video** for the page — **re-encode lighter at the source's
+   own resolution** (no scaling), e.g.
+   `ffmpeg -i <video> -c:v libx264 -crf 24 -preset slow -c:a aac -b:a 128k -movflags +faststart "<out>/video.mp4"`.
+   Reference this file in `metadata.json` → `video_filename`. Downscale only if the
+   source width > 1920 (add `-vf scale=1920:-2`); never upscale. Screen recordings
+   shrink dramatically at CRF 24–26 + `preset slow` with text still legible — verify
+   the output is smaller than the source, else raise CRF.
    Pick/confirm the S3 `<key>` for this share now (the engine uploads a temp proxy under it).
 
 2. **Run the engine** (encodes a ≤15 MiB fps=1 proxy, uploads it, calls Gemini once
@@ -379,8 +427,14 @@ This path does **not** use `process_and_share.py`. Steps:
    </figure>
    ```
 
-5. **Render + upload** (`render_page.py` then `upload_s3.py`, reusing `<key>`;
-   uploads `.jpg`/`.png`/`.md` automatically). Register with `manage_registry.py`.
+5. **Render + upload.** Render with
+   `render_page.py --output-dir <out> --template <player.html> --metadata <metadata.json> --download-button`
+   (add `--passcode` only if the share has one). **Do NOT pass `--original-filename`**
+   here — the dev-video flow uploads only the compressed playback video, so a
+   "Download Original" button would 404. Pass it *only* when you deliberately also place
+   the untouched original in `<out>` under that exact name. Then `upload_s3.py` (reusing
+   `<key>`; uploads `.jpg`/`.png`/`.md` automatically) and register with
+   `manage_registry.py`.
 
 **Verify visual claims before trusting them:** Gemini occasionally misreads on-screen
 text (e.g. product name, button labels). Open a few `shot-*.jpg` and correct the

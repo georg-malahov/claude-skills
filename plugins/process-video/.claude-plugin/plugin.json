@@ -1,6 +1,6 @@
 {
   "name": "process-video",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "description": "Process and share videos: optimize for web, transcribe with Deepgram Nova 3 or a cheaper Gemini engine (audio transcript-cheap + dev-video screen analysis with auto screenshots), add subtitles, and share via S3 or local tunnel with short URLs.",
   "author": {
     "name": "Georg Malahov",

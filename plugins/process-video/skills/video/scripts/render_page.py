@@ -163,19 +163,15 @@ def verify_passcode_in_html(html, passcode_hash):
     return needle in html
 
 
-def build_download_button(video_filename, original_filename=None):
-    """Build download button HTML."""
-    parts = []
-    parts.append(
-        f'<div class="downloads">'
-        f'<a href="{video_filename}" download class="download-btn">Download Video</a>'
-    )
-    if original_filename:
-        parts.append(
-            f'<a href="{original_filename}" download class="download-btn">Download Original</a>'
-        )
-    parts.append("</div>")
-    return "\n".join(parts)
+def build_download_button(video_filename):
+    """Build the 'Download Video' anchor only.
+
+    The surrounding `<div class="downloads">` wrapper lives in the template, and the
+    optional 'Download Original' button is filled separately via {{ORIGINAL_DOWNLOAD}}.
+    Returning a wrapper div or an extra original button here double-counts both — that
+    was the cause of the duplicate/triple download buttons.
+    """
+    return f'<a href="{video_filename}" download class="download-btn">Download Video</a>'
 
 
 def render(template_path, metadata, passcode=None, download_button=False, original_filename=None):
@@ -202,7 +198,7 @@ def render(template_path, metadata, passcode=None, download_button=False, origin
     )
 
     if download_button:
-        download_html = build_download_button(video_filename, original_filename)
+        download_html = build_download_button(video_filename)
     else:
         download_html = ""
 
