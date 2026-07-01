@@ -287,11 +287,11 @@ Otherwise ask via AskUserQuestion:
 - "Generate demo (`/ralph demo`)" — narrated walkthrough video, hosted + linked from the PR
 - "Stop"
 
-After the chosen action resolves — the PR has been created, or the user picked "Stop" with resources still up — run **S6 — Resource cleanup**.
+After the chosen action resolves, run **S6 — Resource cleanup**: it cleans up **automatically when the user picked "Stop"**, or asks first when the PR was created and the flow is still winding down.
 
 ### S6 — Resource cleanup (task complete)
 
-The task is **complete** once the run has finalized (S4) and the PR exists (S5 chained into / the user ran `/ralph pr`), or the user chose "Stop" at S5 with resources still up. At that point, offer to tear down the resources **this run brought up**, so nothing lingers after the work is done.
+S6 reaches here two ways: the user chose **"Stop"** (done with this run), or the **PR was created** and the flow is winding down (auto-PR path, or a picked review/pr/demo that resolved). The goal is that no resource **this run brought up** lingers after the work is done.
 
 **What execution may have started** (read the `env:` block):
 - **The warm dev server** — only when `e2e: dev+prod` in single mode kept one `next dev` alive for the whole run (see "Dev server during execution").
@@ -300,14 +300,18 @@ The task is **complete** once the run has finalized (S4) and the PR exists (S5 c
 
 **Skip silently when there is nothing to clean up:** `e2e: unsupported`, no dev server was started, and the probe never ran `bun run up`. Say nothing and finish the handoff.
 
-**Only offer to tear down what ralph started.** If the probe recorded `e2e_up_by_ralph: false` (the daemon/sidecars were already reachable before this run), do **not** offer to stop them — the user's own environment owns them and tearing them down could disrupt work outside this run. Note that they're being left as-is, and only offer the dev server (if this run started one).
+**Ralph-owned resources are the only things S6 ever touches** — the warm dev server this run started, plus the E2E compose services **only when `e2e_up_by_ralph: true`**. Services the probe marked `e2e_up_by_ralph: false` were already running before this run: never stop them (the user's environment owns them, and tearing them down could disrupt work outside this run) — leave them as-is and say so. This ownership rule holds on **both** paths below.
 
-Otherwise ask via `AskUserQuestion` (never tear down without confirmation — the human decides):
-- **"Leave everything running"** (Recommended) — keep the dev server + services up for PR review or further iteration; they're re-usable and cost nothing to leave. 
-- **"Stop dev server + E2E services"** — stop the warm `next dev`, then bring the compose services down with the project's documented command (`bun run down` / `compose down` — read the project's convention, don't hardcode a name). Only the services this run started.
-- **"Stop dev server only"** — stop the warm dev server, leave the DB/compose services up (offer this only when both a dev server and services are in scope).
+**If the user chose "Stop" → clean up automatically, no second prompt.** "Stop" already means the user is done with this run, so tear the ralph-owned resources down right away instead of asking again: stop the warm `next dev`, then bring the ralph-started compose services down with the project's documented command (`bun run down` / `compose down` — read the project's convention, don't hardcode a name). Everything is re-launchable on demand (`bun run up`, or the next `/ralph …` run brings its own environment up), so a confirmation here would only add friction. Report what was stopped and how to bring it back.
 
-Run any teardown through `run_prefix` where the project requires it, mirroring how the services were brought up. Then log the outcome: `append-progress.sh <progress-file> "[orch] cleanup — <left running | stopped dev server | stopped dev server + E2E services>"`.
+**Otherwise (PR created, flow still winding down) → confirm first.** The user may still be reviewing the PR or iterating against a running app, so don't pull resources out from under them. Ask via `AskUserQuestion`:
+- **"Leave everything running"** (Recommended) — keep the dev server + services up for PR review or further iteration; re-usable and cheap to leave.
+- **"Stop dev server + E2E services"** — the same teardown as the auto path above.
+- **"Stop dev server only"** — stop the warm dev server, leave the DB/compose services up (offer only when both are in scope).
+
+Autonomous / `RALPH_AUTO_PR` runs never take the "Stop" branch (they follow the auto-PR path); there they **leave resources running** by default and log the decision — no unattended teardown.
+
+Run any teardown through `run_prefix` where the project requires it, mirroring how the services were brought up. Log the outcome: `append-progress.sh <progress-file> "[orch] cleanup — <auto-cleanup on stop | left running | stopped dev server | stopped dev server + E2E services>"`.
 
 ---
 
