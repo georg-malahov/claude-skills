@@ -165,6 +165,8 @@ Every `/ralph` run prints a `ralph v<version> — <subcommand>` banner, and `exe
 
 **Dev server is capability-driven.** By default (`e2e: unsupported` / `prod-only`, and all wave mode) **no dev server** — lean validation needs no running app, and a `next dev` watcher is pure waste (in wave mode, a recompile storm across N worktrees). The **exception**: `e2e: dev+prod` in single mode keeps exactly **one** warm dev server alive for the run — the recompiles are the hot-reload that lets each task run its freshly-authored spec immediately, and single mode runs one task at a time, so there's one server and no storm. Per-task dev E2E is **single-mode only this phase**; wave gets E2E via the mandatory prod gate (S3.5) on the merged app. `/ralph e2e` remains the standalone manager of its own server.
 
+**End-of-run cleanup (S6).** Once the task is complete — the run finalized and the PR created — execute offers, via `AskUserQuestion`, to tear down the resources it brought up: the warm dev server and the E2E compose services started by `bun run up`. It only offers to stop what this run actually started (the probe records `e2e_up_by_ralph`), leaving anything that was already running before the run untouched, and defaults to leaving resources up on autonomous runs.
+
 ## Progress files — runtime introspection
 
 Subagents run in isolated context windows; the main session only sees their final summary. To see what an agent is doing *mid-run* (and catch it circling), each run writes a progress file:
