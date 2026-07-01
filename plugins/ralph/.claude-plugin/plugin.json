@@ -1,6 +1,6 @@
 {
   "name": "ralph",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Native Claude-Code agentic loop replacing ralphex: brainstorm → plan → execute → review → e2e → pr → demo, with auto-routed parallel/sequential modes, a hardened environment probe driving capability-gated in-loop E2E (per-task dev-mode + post-review prod gate, mandatory when runnable), a stall watchdog (self-arming ScheduleWakeup fallback that recovers hung/silently-killed agents and doubles as a progress heartbeat), optional PR gating, and auto-generated narrated walkthrough demos (TTS → paced capture → mux → S3).",
   "author": {
     "name": "Georg Malahov",

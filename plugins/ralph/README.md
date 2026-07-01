@@ -74,16 +74,18 @@ Bundled subagents (registered as first-class Claude Code agents via plugin manif
 | Subagent | Model | Effort | Color | Role |
 |---|---|---|---|---|
 | `ralph-quality` | opus | **xhigh** | red | Security, multi-tenant safety, ZenStack policy gaps, TS correctness |
-| `ralph-implementation` | sonnet | — | blue | Plan-vs-code correctness |
-| `ralph-testing` | sonnet | — | green | Unit-test coverage and quality (no E2E) |
-| `ralph-simplification` | sonnet | — | yellow | Over-engineering, dead code, premature abstractions |
-| `ralph-documentation` | haiku | — | gray | README / ADR / inline-doc updates |
-| `ralph-task` | sonnet | — | purple | Implements one plan task; preloads `verification-before-completion`; Skill access for TDD/design/SEO/debugging |
-| `ralph-fixer` | sonnet | — | orange | Applies findings from one review round; preloads `verification-before-completion`; Skill access |
+| `ralph-implementation` | sonnet | medium | blue | Plan-vs-code correctness |
+| `ralph-testing` | sonnet | medium | green | Unit-test coverage and quality (no E2E) |
+| `ralph-simplification` | sonnet | medium | yellow | Over-engineering, dead code, premature abstractions |
+| `ralph-documentation` | haiku | n/a¹ | gray | README / ADR / inline-doc updates |
+| `ralph-task` | sonnet | medium | purple | Implements one plan task; preloads `verification-before-completion`; Skill access for TDD/design/SEO/debugging |
+| `ralph-fixer` | sonnet | medium | orange | Applies findings from one review round; preloads `verification-before-completion`; Skill access |
 
 Five review agents ported from `theomedis-physio/.ralphex/agents/` and tuned for T3 + ZenStack + Better Auth + shadcn. Override any subagent per project by dropping `.claude/agents/ralph-<name>.md` into the project — Claude Code merges plugin-bundled and project-local agents automatically.
 
 Model choices follow the theomedis pattern: opus for the high-stakes security review, haiku for cheap text work, sonnet for the balanced middle. Override per project by changing `model:` in the local agent file.
+
+Effort is pinned per agent so a run's reasoning depth doesn't silently track whatever effort the launching session happened to use: `xhigh` for the security reviewer (opus), `medium` for every sonnet agent (the two code-mutating agents plus the three sonnet reviewers). ¹ `ralph-documentation` runs on haiku, which does **not** support the `effort` parameter (haiku uses extended thinking with an explicit token budget, not adaptive-thinking effort levels), so no effort is set — an `effort:` key on a haiku agent is a no-op. Override per project by changing `effort:` in the local agent file.
 
 ### Tool grants
 
