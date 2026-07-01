@@ -74,16 +74,18 @@ Bundled subagents (registered as first-class Claude Code agents via plugin manif
 | Subagent | Model | Effort | Color | Role |
 |---|---|---|---|---|
 | `ralph-quality` | opus | **xhigh** | red | Security, multi-tenant safety, ZenStack policy gaps, TS correctness |
-| `ralph-implementation` | sonnet | — | blue | Plan-vs-code correctness |
-| `ralph-testing` | sonnet | — | green | Unit-test coverage and quality (no E2E) |
-| `ralph-simplification` | sonnet | — | yellow | Over-engineering, dead code, premature abstractions |
-| `ralph-documentation` | haiku | — | gray | README / ADR / inline-doc updates |
-| `ralph-task` | sonnet | — | purple | Implements one plan task; preloads `verification-before-completion`; Skill access for TDD/design/SEO/debugging |
-| `ralph-fixer` | sonnet | — | orange | Applies findings from one review round; preloads `verification-before-completion`; Skill access |
+| `ralph-implementation` | sonnet | medium | blue | Plan-vs-code correctness |
+| `ralph-testing` | sonnet | medium | green | Unit-test coverage and quality (no E2E) |
+| `ralph-simplification` | sonnet | medium | yellow | Over-engineering, dead code, premature abstractions |
+| `ralph-documentation` | haiku | n/a¹ | gray | README / ADR / inline-doc updates |
+| `ralph-task` | sonnet | medium | purple | Implements one plan task; preloads `verification-before-completion`; Skill access for TDD/design/SEO/debugging |
+| `ralph-fixer` | sonnet | medium | orange | Applies findings from one review round; preloads `verification-before-completion`; Skill access |
 
 Five review agents ported from `theomedis-physio/.ralphex/agents/` and tuned for T3 + ZenStack + Better Auth + shadcn. Override any subagent per project by dropping `.claude/agents/ralph-<name>.md` into the project — Claude Code merges plugin-bundled and project-local agents automatically.
 
 Model choices follow the theomedis pattern: opus for the high-stakes security review, haiku for cheap text work, sonnet for the balanced middle. Override per project by changing `model:` in the local agent file.
+
+Effort is pinned per agent so a run's reasoning depth doesn't silently track whatever effort the launching session happened to use: `xhigh` for the security reviewer (opus), `medium` for every sonnet agent (the two code-mutating agents plus the three sonnet reviewers). ¹ `ralph-documentation` runs on haiku, which does **not** support the `effort` parameter (haiku uses extended thinking with an explicit token budget, not adaptive-thinking effort levels), so no effort is set — an `effort:` key on a haiku agent is a no-op. Override per project by changing `effort:` in the local agent file.
 
 ### Tool grants
 
@@ -162,6 +164,8 @@ Every `/ralph` run prints a `ralph v<version> — <subcommand>` banner, and `exe
 - **`e2e`** — `dev+prod` / `prod-only` / `unsupported`, which drives everything below.
 
 **Dev server is capability-driven.** By default (`e2e: unsupported` / `prod-only`, and all wave mode) **no dev server** — lean validation needs no running app, and a `next dev` watcher is pure waste (in wave mode, a recompile storm across N worktrees). The **exception**: `e2e: dev+prod` in single mode keeps exactly **one** warm dev server alive for the run — the recompiles are the hot-reload that lets each task run its freshly-authored spec immediately, and single mode runs one task at a time, so there's one server and no storm. Per-task dev E2E is **single-mode only this phase**; wave gets E2E via the mandatory prod gate (S3.5) on the merged app. `/ralph e2e` remains the standalone manager of its own server.
+
+**End-of-run cleanup (S6).** Once the task is complete, execute tears down the resources it brought up — the warm dev server and the E2E compose services started by `bun run up`. When the user chooses **Stop**, cleanup runs **automatically** (no extra prompt — resources are re-launchable on demand); when the flow is still winding down after a PR, it asks first via `AskUserQuestion`. Either way it only stops what this run actually started (the probe records `e2e_up_by_ralph`), leaves anything already running before the run untouched, and defaults to leaving resources up on autonomous runs.
 
 ## Progress files — runtime introspection
 

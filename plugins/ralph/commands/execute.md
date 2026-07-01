@@ -55,7 +55,7 @@ If multiple manifests exist with non-`completed` state, ask the user which to ex
 
 ## Session manifest
 
-Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add three custom frontmatter lines: `progress: ${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists, `dispatches: 0` — the durable count of `ralph-task` dispatches that the RECONCILE 50-cap reads (incremented on every dispatch, so the cap holds across a resume) — and the **capability profile** resolved by the Step 1 probe, recorded as a small `env:` block (`exec_mode`, `run_prefix`, `e2e`, `e2e_cmd`, `worktree_isolation`). S1/S2/S3.5 and resume read it back; resume does not re-probe unless the block is missing.
+Create per dispatcher spec (`commands/ralph.md` → "Session manifests"). `kind: execute`. `artifact:` points at the plan file (single) or execution manifest (wave). Add three custom frontmatter lines: `progress: ${TMPDIR:-/tmp}/ralph-progress-<plan-stem>.txt` so a resuming session can find the live progress file if it still exists, `dispatches: 0` — the durable count of `ralph-task` dispatches that the RECONCILE 50-cap reads (incremented on every dispatch, so the cap holds across a resume) — and the **capability profile** resolved by the Step 1 probe, recorded as a small `env:` block (`exec_mode`, `run_prefix`, `e2e`, `e2e_cmd`, `worktree_isolation`, `e2e_up_by_ralph`). S1/S2/S3.5/S6 and resume read it back; resume does not re-probe unless the block is missing.
 
 Durable resume state is the plan checkboxes + (wave) the manifest's `Current State`. Checkpoint the session manifest after each task verdict, wave transition, and review iteration.
 
@@ -100,7 +100,7 @@ Detect the host-orchestrating case from the script body: it shells out to a wrap
 
 **3c. E2E-runtime readiness (resolve whenever `e2e != unsupported`).** Knowing the E2E command is not enough — the runtime must actually be reachable before declaring E2E runnable. Mirror the deps "attempt once, then re-verify" policy:
 
-1. **Attempt the project's documented start once.** Run `bun run up` (or the project's equivalent compose/dev-up script — whatever the project documents as the way to bring services up) to ensure the Docker daemon, DB, mail (e.g. GreenMail), and any other declared compose services are running. This mirrors the step-2 "auto-install once on the host" policy: one attempt to bring the environment up before probing.
+1. **Attempt the project's documented start once.** Run `bun run up` (or the project's equivalent compose/dev-up script — whatever the project documents as the way to bring services up) to ensure the Docker daemon, DB, mail (e.g. GreenMail), and any other declared compose services are running. This mirrors the step-2 "auto-install once on the host" policy: one attempt to bring the environment up before probing. **Before the attempt, note whether the daemon + sidecars were already reachable** (a quick `docker info` / sidecar probe); record `e2e_up_by_ralph: true` only if this run actually started them, `false` if they were already up. S6 reads this so end-of-run cleanup only offers to tear down what this run brought up — never the user's pre-existing environment.
 2. **Verify the runtime is actually reachable** after the start attempt:
    - **Docker daemon** — `docker info` exits 0 (the daemon is running and reachable from the host).
    - **Declared sidecars** (DB / GreenMail / compose services) — check that each service the project documents as required for E2E is up or reachable (e.g. `docker compose ps` shows it running, or a lightweight TCP probe succeeds). Read the project's compose file or README to identify which services are required; do not hardcode names.
@@ -279,12 +279,39 @@ If `RALPH_AUTO_PR` is set:
 - user said `"hardened"` / `"with review"` → chain into `/ralph review`
 - otherwise → chain into `/ralph pr` (hardened if E2E passed this run, else lean)
 - then, once the PR exists, chain into `/ralph demo` (capability-permitting — it self-skips if ffmpeg/voice/harness are missing) so the narrated walkthrough lands on the fresh PR. This realizes "demos generated automatically on execution completion."
+- then, once the PR (and any demo) is done, run **S6 — Resource cleanup** (autonomous default: leave resources running, log the decision — never tear down unprompted).
 
 Otherwise ask via AskUserQuestion:
 - "Visual review (`/ralph review`)" (Recommended)
 - "Create PR now (`/ralph pr`)" — hardened if E2E already passed this run (`e2e != unsupported`), else lean
 - "Generate demo (`/ralph demo`)" — narrated walkthrough video, hosted + linked from the PR
 - "Stop"
+
+After the chosen action resolves, run **S6 — Resource cleanup**: it cleans up **automatically when the user picked "Stop"**, or asks first when the PR was created and the flow is still winding down.
+
+### S6 — Resource cleanup (task complete)
+
+S6 reaches here two ways: the user chose **"Stop"** (done with this run), or the **PR was created** and the flow is winding down (auto-PR path, or a picked review/pr/demo that resolved). The goal is that no resource **this run brought up** lingers after the work is done.
+
+**What execution may have started** (read the `env:` block):
+- **The warm dev server** — only when `e2e: dev+prod` in single mode kept one `next dev` alive for the whole run (see "Dev server during execution").
+- **The E2E Docker/compose sidecars** — whenever `e2e != unsupported`, the readiness probe (Step 1 · 3c) ran `bun run up` to bring up the Docker daemon services (Postgres, GreenMail, etc.).
+- Wave worktrees are **not** in scope here — W5 already prunes them.
+
+**Skip silently when there is nothing to clean up:** `e2e: unsupported`, no dev server was started, and the probe never ran `bun run up`. Say nothing and finish the handoff.
+
+**Ralph-owned resources are the only things S6 ever touches** — the warm dev server this run started, plus the E2E compose services **only when `e2e_up_by_ralph: true`**. Services the probe marked `e2e_up_by_ralph: false` were already running before this run: never stop them (the user's environment owns them, and tearing them down could disrupt work outside this run) — leave them as-is and say so. This ownership rule holds on **both** paths below.
+
+**If the user chose "Stop" → clean up automatically, no second prompt.** "Stop" already means the user is done with this run, so tear the ralph-owned resources down right away instead of asking again: stop the warm `next dev`, then bring the ralph-started compose services down with the project's documented command (`bun run down` / `compose down` — read the project's convention, don't hardcode a name). Everything is re-launchable on demand (`bun run up`, or the next `/ralph …` run brings its own environment up), so a confirmation here would only add friction. Report what was stopped and how to bring it back.
+
+**Otherwise (PR created, flow still winding down) → confirm first.** The user may still be reviewing the PR or iterating against a running app, so don't pull resources out from under them. Ask via `AskUserQuestion`:
+- **"Leave everything running"** (Recommended) — keep the dev server + services up for PR review or further iteration; re-usable and cheap to leave.
+- **"Stop dev server + E2E services"** — the same teardown as the auto path above.
+- **"Stop dev server only"** — stop the warm dev server, leave the DB/compose services up (offer only when both are in scope).
+
+Autonomous / `RALPH_AUTO_PR` runs never take the "Stop" branch (they follow the auto-PR path); there they **leave resources running** by default and log the decision — no unattended teardown.
+
+Run any teardown through `run_prefix` where the project requires it, mirroring how the services were brought up. Log the outcome: `append-progress.sh <progress-file> "[orch] cleanup — <auto-cleanup on stop | left running | stopped dev server | stopped dev server + E2E services>"`.
 
 ---
 
@@ -375,7 +402,7 @@ Per-wave plans run tasks-only; the merge plan runs the full pipeline. **In the c
 - Set manifest `Current State: completed`
 - `git worktree prune`; remove `.ralph/worktrees/*`
 - Move the manifest to `docs/plans/completed/`
-- Handoff per S5
+- Handoff per S5 — which includes **S6 — Resource cleanup**. In wave mode the per-wave tasks ran lean (no dev server), so the only resources in scope are the compose services the W4 merge plan's prod E2E gate brought up (`bun run up`); S6 offers to tear those down. Worktrees are already pruned above.
 
 ## Resume
 

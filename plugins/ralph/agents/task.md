@@ -2,6 +2,7 @@
 name: ralph-task
 description: Implements ONE task from a ralph plan. Receives the plan file, the single task description, and the task contract from prompts/task.md. Edits code, runs lean validation (lint + typecheck + test:unit), commits on green. Never runs E2E. See prompts/task.md for the full contract.
 model: sonnet
+effort: medium
 color: purple
 skills:
   - verification-before-completion

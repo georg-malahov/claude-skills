@@ -2,6 +2,7 @@
 name: ralph-testing
 description: Unit-test coverage and quality reviewer for Vitest projects. Flags missing unit coverage, brittle assertions, untested branches. Does NOT review E2E — E2E lives in /ralph e2e. Used in ralph review loop iteration 1 only. Read-only.
 model: sonnet
+effort: medium
 color: green
 tools: Read, Grep, Glob, Bash
 ---
