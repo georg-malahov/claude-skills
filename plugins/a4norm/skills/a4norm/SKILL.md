@@ -96,38 +96,48 @@ Useful variants:
    spiral binding, so it is flooded from the border and repainted in the page's
    own paper tone, and a thick band of it (a binding) is cropped away. Sheet
    content cannot reach the border, so ink is untouchable by construction.
-3. **Orient** — EXIF, plus a 90° rotation if the frame is landscape and the
+3. **Or decide the frame holds no document.** No accepted quad *and* a
+   paper-like area under `--photo-paper` (20%) means somebody is turning
+   snapshots into a PDF, not scanning. Everything below is skipped and the
+   picture is fitted onto the page as shot, at `--photo-dpi` (200) and
+   `--photo-quality` (82) with 4:2:0 chroma; a landscape photo turns the page
+   rather than being rotated. Measured paper-like area is 9% for a photo of a
+   desk against 40–97% for every real document, so the threshold sits in a wide
+   gap — but say so in the report, because the user may disagree. `--photo off`
+   forces the scanner treatment, `--photo on` forces the short path.
+4. **Orient** — EXIF, plus a 90° rotation if the frame is landscape and the
    target is portrait (`--rotate`; sides within `--rotate-tol` count as square).
-4. **Trim the photographic border** — skipped after a rectify, which already
+5. **Trim the photographic border** — skipped after a rectify, which already
    ended exactly at the sheet. Finds the sheet edge on each side by a hard
    brightness step whose outer strip does not look like the page, then cuts a
    little further in to drop the edge shadow.
-5. **Flat-field.** Divides by a heavily smoothed background estimate, which is
+6. **Flat-field.** Divides by a heavily smoothed background estimate, which is
    what turns uneven camera light into even white paper.
-6. **Deskew** — skipped after a rectify (the quad already set the
+7. **Deskew** — skipped after a rectify (the quad already set the
    orientation) — if the text is off by more than `--deskew-min` (0.4°) and under 5°
    — deliberately *after* the flat-field, because the angle is measured on a
    binarized copy and a dim photo reads as one solid blob, so a real tilt comes
    out as 0.0°. Rotation swings a strip of desk back into frame, so a cut of
    `max_side × sin(angle)` follows on every side that had a detected edge.
-7. **Neutralize the ink.** A photo tints black print warm. Everything is pushed
+8. **Neutralize the ink.** A photo tints black print warm. Everything is pushed
    to neutral grey except pixels that are both high-chroma and dark — real
    coloured ink, any hue — which keep their colour.
-8. **Tone** by histogram percentiles (`-contrast-stretch`), not a fixed curve.
-9. **Erase leftover haze** — bright *and* featureless areas become paper, so a
+9. **Tone** by histogram percentiles (`-contrast-stretch`), not a fixed curve.
+10. **Erase leftover haze** — bright *and* featureless areas become paper, so a
    soft shadow or a finger at the edge disappears while anything with structure
    (ink, a faint stamp, a pencil note) survives.
-10. **Clean paper to pure white** at `--paper-thr` (80%), protecting a 1 px
+11. **Clean paper to pure white** at `--paper-thr` (80%), protecting a 1 px
     ring around every glyph. Aggressive on purpose: it is what erases the ghost
     of the other side of the page, and measured on printed text it changes ink
     coverage by 0.04%.
-11. **Fit to A4** (see below) and write JPEG-in-PDF at `--dpi` (300) and
+12. **Fit to A4** (see below) and write JPEG-in-PDF at `--dpi` (300) and
     `--quality` (88, no chroma subsampling — text stays crisp).
 
 ## How the A4 scale is chosen (`--fit`, default `auto`)
 
 | Mode | When it applies | How the scale is derived |
 |---|---|---|
+| photo | the frame holds no document | the picture is fitted as shot, page turned for a landscape one |
 | rectified | the page was warped flat in step 2 | the rectified image *is* the sheet, so it is fitted to the page whole |
 | `edges` | two **opposite** sheet edges are visible in the frame | that axis spans the whole sheet → exact px-per-mm, no assumption about the layout |
 | `content` | no opposite pair, but the ink block spans ≥45% of the frame | the ink block is set to the text width implied by `--margins` (default 30/15/20 mm) |
