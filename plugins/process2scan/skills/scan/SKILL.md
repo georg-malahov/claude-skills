@@ -65,33 +65,53 @@ Useful variants:
 
 1. **Rasterize.** For a PDF it extracts the embedded image rather than rendering
    it — rendering applies the ICC profile and flattens the tonal range.
-2. **Orient** — EXIF, plus a 90° rotation if the frame is landscape and the
-   target is portrait (`--rotate`).
-3. **Trim the photographic border.** Finds the sheet edge on each side by a hard
+2. **Rectify** (`--rectify`, auto). Finds the sheet as a quadrilateral — the big
+   bright low-chroma region, both tests relative to the image's own paper level
+   — and warps it flat. This is what makes a photo shot at an angle come out as
+   a scan instead of a trapezoid on a desk, and it runs first because every
+   later step assumes a flat page. A quad is only accepted if it really looks
+   like a sheet: 15–90% of the frame, filling ≥80% of its own hull, corners
+   between 45° and 135°, opposite sides within 1.8×. Anything short of that is
+   refused with a reason in the report, and the rest of the pipeline carries on
+   as before — rectifying on a wrong quad is far worse than not rectifying.
+   After a rectify the script **erases whatever leans in from outside the
+   sheet**: non-paper that is *connected to the frame edge* is desk, shadow or a
+   spiral binding, so it is flooded from the border and repainted in the page's
+   own paper tone, and a thick band of it (a binding) is cropped away. Sheet
+   content cannot reach the border, so ink is untouchable by construction.
+3. **Orient** — EXIF, plus a 90° rotation if the frame is landscape and the
+   target is portrait (`--rotate`; sides within `--rotate-tol` count as square).
+4. **Trim the photographic border** — skipped after a rectify, which already
+   ended exactly at the sheet. Finds the sheet edge on each side by a hard
    brightness step whose outer strip does not look like the page, then cuts a
    little further in to drop the edge shadow.
-4. **Flat-field.** Divides by a heavily smoothed background estimate, which is
+5. **Flat-field.** Divides by a heavily smoothed background estimate, which is
    what turns uneven camera light into even white paper.
-5. **Deskew** if the text is off by more than `--deskew-min` (0.4°) and under 5°
+6. **Deskew** — skipped after a rectify (the quad already set the
+   orientation) — if the text is off by more than `--deskew-min` (0.4°) and under 5°
    — deliberately *after* the flat-field, because the angle is measured on a
    binarized copy and a dim photo reads as one solid blob, so a real tilt comes
    out as 0.0°. Rotation swings a strip of desk back into frame, so a cut of
    `max_side × sin(angle)` follows on every side that had a detected edge.
-6. **Neutralize the ink.** A photo tints black print warm. Everything is pushed
+7. **Neutralize the ink.** A photo tints black print warm. Everything is pushed
    to neutral grey except pixels that are both high-chroma and dark — real
    coloured ink, any hue — which keep their colour.
-7. **Tone** by histogram percentiles (`-contrast-stretch`), not a fixed curve.
-8. **Erase leftover haze** — bright *and* featureless areas become paper, so a
+8. **Tone** by histogram percentiles (`-contrast-stretch`), not a fixed curve.
+9. **Erase leftover haze** — bright *and* featureless areas become paper, so a
    soft shadow or a finger at the edge disappears while anything with structure
    (ink, a faint stamp, a pencil note) survives.
-9. **Clean paper to pure white**, protecting a 1 px ring around every glyph.
-10. **Fit to A4** (see below) and write JPEG-in-PDF at `--dpi` (300) and
+10. **Clean paper to pure white** at `--paper-thr` (80%), protecting a 1 px
+    ring around every glyph. Aggressive on purpose: it is what erases the ghost
+    of the other side of the page, and measured on printed text it changes ink
+    coverage by 0.04%.
+11. **Fit to A4** (see below) and write JPEG-in-PDF at `--dpi` (300) and
     `--quality` (88, no chroma subsampling — text stays crisp).
 
 ## How the A4 scale is chosen (`--fit`, default `auto`)
 
 | Mode | When it applies | How the scale is derived |
 |---|---|---|
+| rectified | the page was warped flat in step 2 | the rectified image *is* the sheet, so it is fitted to the page whole |
 | `edges` | two **opposite** sheet edges are visible in the frame | that axis spans the whole sheet → exact px-per-mm, no assumption about the layout |
 | `content` | no opposite pair, but the ink block spans ≥45% of the frame | the ink block is set to the text width implied by `--margins` (default 30/15/20 mm) |
 | `frame` | almost no ink, or nothing else worked | the frame itself is fitted to the page, centred |
@@ -114,7 +134,10 @@ with what scale, so a wrong choice is visible without opening the file.
 | a photo or a dark graphic on the page got bleached | `--close 12 --bg-scale 3` (gentler background estimate), or `--no-flatten-paper` |
 | the page came out sideways | `--rotate 90` / `180` / `270`; for a near-square page `--rotate 0` (auto-rotate ignores side differences under `--rotate-tol`, 5%) |
 | a handwritten page came out tilted, or the run tilted it | `--no-deskew` — the estimator reads text baselines, and handwriting has none worth trusting |
-| the page was shot at an angle and came out as a trapezoid | no flag: there is no perspective correction. Rectify the page quad first (see *Limits*), then run with `--no-trim --fit frame` |
+| the page was shot at an angle and came out as a trapezoid | the quad was refused — the report says why. `--rectify on` fails loudly instead of carrying on, which is the quickest way to see the reason |
+| rectification fired on something that is not a sheet | `--rectify off` |
+| a binding or a desk edge survived along one side | `--edge-band 15` (how far in the border flood may reach) |
+| part of the page was repainted as if it were desk | `--no-edge-clean` |
 | file too big | `--dpi 200`, `--quality 80`, or `--gray` |
 
 `--dry-run` after a change shows the new decisions without writing a file.
@@ -139,9 +162,10 @@ signatures and stamps are intact.
 
 ## Limits — say these out loud instead of pretending
 
-- **No perspective correction.** A photo taken at an angle keeps its keystone;
-  only rotation and small-angle deskew are handled. Ask the user to reshoot
-  square-on.
+- **Rectification needs the sheet to stand out from the background.** Bright and
+  low-chroma against a darker or coloured surface works; white paper on a white
+  desk does not separate, the quad is refused, and the keystone stays. Reshoot
+  square-on or on a darker surface.
 - **Pages are processed independently**, so the scale can differ by a few tenths
   of a percent between pages of one document.
 - **The haze filter can eat a genuinely smooth light-grey fill.** `--no-haze`.

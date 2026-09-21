@@ -14,6 +14,7 @@ Usage:  a4norm [options] INPUT [INPUT ...]
 """
 
 import argparse
+import collections
 import math
 import os
 import re
@@ -158,6 +159,257 @@ def deskew_angle(path):
         return 0.0
 
 
+def raw_rgb(path, w, h):
+    """Downscaled 8-bit RGB bytes, row-major."""
+    return subprocess.run(
+        ["magick", str(path), "-resize", f"{w}x{h}!", "-depth", "8", "rgb:-"],
+        check=True, capture_output=True).stdout
+
+
+def dims(path):
+    return tuple(int(x) for x in fmt(path, "%w %h").split())
+
+
+def _open4(mask, w, h):
+    """4-neighbour erode then dilate — drops speckle without moving real edges."""
+    er = bytearray(w * h)
+    for y in range(1, h - 1):
+        row = y * w
+        for x in range(1, w - 1):
+            i = row + x
+            if mask[i] and mask[i-1] and mask[i+1] and mask[i-w] and mask[i+w]:
+                er[i] = 1
+    di = bytearray(w * h)
+    for y in range(1, h - 1):
+        row = y * w
+        for x in range(1, w - 1):
+            i = row + x
+            if er[i] or er[i-1] or er[i+1] or er[i-w] or er[i+w]:
+                di[i] = 1
+    return di
+
+
+def _shoelace(pts):
+    a = 0.0
+    for i in range(len(pts)):
+        x1, y1 = pts[i]; x2, y2 = pts[(i + 1) % len(pts)]
+        a += x1 * y2 - x2 * y1
+    return abs(a) / 2
+
+
+def _angle(a, b, c):
+    """Angle at b, in degrees."""
+    v1 = (a[0] - b[0], a[1] - b[1]); v2 = (c[0] - b[0], c[1] - b[1])
+    n1 = math.hypot(*v1); n2 = math.hypot(*v2)
+    if n1 == 0 or n2 == 0:
+        return 0.0
+    cos = max(-1.0, min(1.0, (v1[0]*v2[0] + v1[1]*v2[1]) / (n1 * n2)))
+    return math.degrees(math.acos(cos))
+
+
+def detect_quad(path, side=400):
+    """Find the sheet as a quadrilateral, or return (None, reason).
+
+    The sheet is the big bright low-chroma region; a desk is either darker or
+    coloured. Both tests are relative to the image's own paper level, so a dim
+    photo works as well as a bright one. Everything after this is checks: a
+    blob that is not convincingly a four-cornered sheet is refused, because
+    rectifying on a wrong quad is far worse than not rectifying at all.
+    """
+    w0, h0 = dims(path)
+    w = side
+    h = max(1, round(side * h0 / w0))
+    buf = raw_rgb(path, w, h)
+    n = w * h
+    V = bytearray(n); C = bytearray(n)
+    for i in range(n):
+        j = i * 3
+        r, g, b = buf[j], buf[j+1], buf[j+2]
+        v = r if r > g else g
+        if b > v: v = b
+        m = r if r < g else g
+        if b < m: m = b
+        V[i] = v; C[i] = v - m
+    paper = sorted(V)[int(0.95 * (n - 1))]
+    v_thr = max(60, int(paper * 0.72))
+    mask = bytearray(n)
+    for i in range(n):
+        if V[i] >= v_thr and C[i] <= 45:
+            mask[i] = 1
+    mask = _open4(mask, w, h)
+
+    seen = bytearray(n); best = []
+    for s0 in range(n):
+        if mask[s0] and not seen[s0]:
+            q = collections.deque([s0]); seen[s0] = 1; comp = []
+            while q:
+                i = q.popleft(); comp.append(i)
+                x, y = i % w, i // w
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    xx, yy = x + dx, y + dy
+                    if 0 <= xx < w and 0 <= yy < h:
+                        j2 = yy * w + xx
+                        if mask[j2] and not seen[j2]:
+                            seen[j2] = 1; q.append(j2)
+            if len(comp) > len(best):
+                best = comp
+    if not best:
+        return None, "no bright low-chroma region found"
+    frac = len(best) / n
+    if frac > 0.90:
+        return None, f"the sheet already fills the frame ({frac:.0%})"
+    if frac < 0.15:
+        return None, f"the brightest region is too small to be the sheet ({frac:.0%})"
+
+    pts = [(i % w, i // w) for i in best]
+    tl = min(pts, key=lambda p: p[0] + p[1])
+    br = max(pts, key=lambda p: p[0] + p[1])
+    tr = max(pts, key=lambda p: p[0] - p[1])
+    bl = min(pts, key=lambda p: p[0] - p[1])
+    quad = [tl, tr, br, bl]
+    if len(set(quad)) < 4:
+        return None, "corners collapsed"
+    qa = _shoelace(quad)
+    if qa <= 0 or len(best) / qa < 0.80:
+        return None, "the bright region is not shaped like a quadrilateral"
+    for i in range(4):
+        a = _angle(quad[(i - 1) % 4], quad[i], quad[(i + 1) % 4])
+        if not 45 <= a <= 135:
+            return None, f"corner angle {a:.0f}° is not a sheet corner"
+    d = lambda a, b: math.hypot(a[0]-b[0], a[1]-b[1])
+    top, bot = d(tl, tr), d(bl, br)
+    lef, rig = d(tl, bl), d(tr, br)
+    if max(top, bot) / max(1e-6, min(top, bot)) > 1.8 or \
+       max(lef, rig) / max(1e-6, min(lef, rig)) > 1.8:
+        return None, "opposite sides differ too much to be one flat sheet"
+    sx, sy = w0 / w, h0 / h
+    return [(p[0] * sx, p[1] * sy) for p in quad], f"{frac:.0%} of the frame"
+
+
+def rectify(src, dst, quad, inset_pct):
+    """Warp the quad onto a rectangle whose sides average the quad's own."""
+    tl, tr, br, bl = quad
+    d = lambda a, b: math.hypot(a[0]-b[0], a[1]-b[1])
+    W = max(50, round((d(tl, tr) + d(bl, br)) / 2))
+    H = max(50, round((d(tl, bl) + d(tr, br)) / 2))
+    cx = sum(p[0] for p in quad) / 4; cy = sum(p[1] for p in quad) / 4
+    f = inset_pct / 100.0
+    q = [(p[0] + (cx - p[0]) * f, p[1] + (cy - p[1]) * f) for p in quad]
+    pairs = "  ".join(f"{p[0]:.1f},{p[1]:.1f} {dx},{dy}" for p, (dx, dy) in
+                      zip(q, ((0, 0), (W, 0), (W, H), (0, H))))
+    magick(src, "-virtual-pixel", "white", "-distort", "Perspective", pairs,
+           "-crop", f"{W}x{H}+0+0", "+repage", dst)
+    return W, H
+
+
+def clean_border(path, dst, band_pct, max_share=25.0, side=520):
+    """Erase whatever leans in from outside the sheet, without cropping.
+
+    Non-paper pixels that are CONNECTED TO THE FRAME EDGE are desk, shadow or a
+    spiral binding: the sheet's own content cannot reach the border after a
+    rectify. So flood from the border through the non-paper mask and repaint
+    what it reaches in the page's own paper tone.
+
+    Cropping bands instead is what the first attempt did, and it cut the first
+    line of writing off the top and the list dashes off the left: near a margin,
+    a line of text is just as "dark" as a binding. Connectivity is the property
+    that actually separates the two. The flood is depth-capped so a stroke that
+    does touch the edge cannot drain the whole page.
+    """
+    w0, h0 = dims(path)
+    w = side
+    h = max(1, round(side * h0 / w0))
+    buf = raw_rgb(path, w, h)
+    n = w * h
+    V = bytearray(n); C = bytearray(n)
+    for i in range(n):
+        j = i * 3
+        r, g, b = buf[j], buf[j+1], buf[j+2]
+        v = r if r > g else g
+        if b > v: v = b
+        m = r if r < g else g
+        if b < m: m = b
+        V[i] = v; C[i] = v - m
+    paper = sorted(V)[int(0.90 * (n - 1))]
+    v_bad = int(paper * 0.88)   # the desk fades into a gradient at the
+                                # sheet edge; catching only its darkest
+                                # core leaves a visible tan fringe
+    depth = max(3, int(min(w, h) * band_pct / 100.0))
+
+    reach = bytearray(n)
+    q = collections.deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            i = y * w + x
+            if (V[i] < v_bad or C[i] > 45) and not reach[i]:
+                reach[i] = 1; q.append((i, 0))
+    for y in range(h):
+        for x in (0, w - 1):
+            i = y * w + x
+            if (V[i] < v_bad or C[i] > 45) and not reach[i]:
+                reach[i] = 1; q.append((i, 0))
+    # `jump` lets the flood cross a narrow bright gap. A spiral binding is dark
+    # rings with paper showing between them, so a strictly 4-connected flood
+    # stops at the first gap and leaves the rest of the binding stranded inside
+    # the page. The jump is small on purpose: it spreads only from something
+    # already connected to the frame edge, never from ink.
+    jump = 2
+    off = [(dx, dy) for dy in range(-jump, jump + 1)
+           for dx in range(-jump, jump + 1) if dx or dy]
+    while q:
+        i, d = q.popleft()
+        if d >= depth:
+            continue
+        x, y = i % w, i // w
+        for dx, dy in off:
+            xx, yy = x + dx, y + dy
+            if 0 <= xx < w and 0 <= yy < h:
+                j2 = yy * w + xx
+                if not reach[j2] and (V[j2] < v_bad or C[j2] > 45):
+                    reach[j2] = 1; q.append((j2, d + 1))
+    share = 100.0 * sum(reach) / n
+    if share <= 0.0:
+        return None, 0.0, {}
+    if share > max_share:
+        return None, share, {}
+
+    # A binding is a THICK band of border-connected junk, and the flood only
+    # partly bites into it: the paper gaps between the spiral rings stop it. So
+    # measure the band in the flood mask itself and crop that depth away. The
+    # mask can only hold border-connected pixels, so a dash in the margin can
+    # never be in it — which is exactly what the earlier darkness-based crop got
+    # wrong when it ate the first line and the list dashes.
+    cov_need = 0.15
+    cut = {}
+    for name in ("left", "right", "top", "bottom"):
+        last = 0
+        if name in ("left", "right"):
+            rng = range(depth) if name == "left" else range(w - 1, w - 1 - depth, -1)
+            for k, x in enumerate(rng):
+                if sum(reach[y * w + x] for y in range(h)) / h > cov_need:
+                    last = k + 1
+            cut[name] = round(last * w0 / w)
+        else:
+            rng = range(depth) if name == "top" else range(h - 1, h - 1 - depth, -1)
+            for k, y in enumerate(rng):
+                row = y * w
+                if sum(reach[row + x] for x in range(w)) / w > cov_need:
+                    last = k + 1
+            cut[name] = round(last * h0 / h)
+
+    pgm = f"P5\n{w} {h}\n255\n".encode() + bytes(255 if v else 0 for v in reach)
+    mpath = dst + ".bordermask.pgm"
+    open(mpath, "wb").write(pgm)
+    # the page's own paper tone, so the later flat-field sees no bright patch
+    tone = fmt(path, "%[pixel:p{" + f"{w0 // 2},{h0 // 2}" + "}]")
+    magick(path, "(", "-size", f"{w0}x{h0}", f"xc:{tone}", ")",
+           "(", mpath, "-morphology", "Dilate", "Disk:3",
+           "-resize", f"{w0}x{h0}!", "-blur", "0x2", ")",
+           "-compose", "Over", "-composite", dst)
+    os.unlink(mpath)
+    return dst, share, cut
+
+
 # --------------------------------------------------------------- page pipeline
 
 
@@ -198,9 +450,9 @@ def rasterize(src, workdir, min_px=2400):
 
 
 def process_page(src, out_png, o, report):
-    w0, h0 = (int(x) for x in fmt(src, "%w %h").split())
     cur = src
     step = 0
+    rectified = False
 
     def stage(name, *args, src_override=None):
         nonlocal cur, step
@@ -210,7 +462,56 @@ def process_page(src, out_png, o, report):
         cur = dst
         return dst
 
-    # 1. rotate to the target orientation
+    # 1. rectify: warp the sheet's own quadrilateral onto a rectangle. This has
+    #    to come first — every later step assumes the page is flat, and a page
+    #    shot at an angle is the one thing a rectangular crop can never fix.
+    if o.rectify != "off":
+        quad, why = detect_quad(src)
+        if quad:
+            step += 1
+            dst = f"{out_png}.s{step}-rectify.png"
+            W, H = rectify(src, dst, quad, o.rect_inset)
+            cur = dst
+            rectified = True
+            report.append(f"rectified the sheet quad ({why}) -> {W}x{H}")
+            if not o.no_edge_clean:
+                step += 1
+                cleaned = f"{out_png}.s{step}-border.png"
+                got, share, cut = clean_border(cur, cleaned, o.edge_band)
+                if got:
+                    cur = got
+                    report.append(f"erased what leaned in from outside the "
+                                  f"sheet ({share:.1f}% of the page)")
+                    pad = round(max(W, H) * 0.004)
+                    l = cut["left"] + pad if cut["left"] else 0
+                    r = cut["right"] + pad if cut["right"] else 0
+                    t = cut["top"] + pad if cut["top"] else 0
+                    b = cut["bottom"] + pad if cut["bottom"] else 0
+                    if (l or r or t or b) and W - l - r > 100 and H - t - b > 100:
+                        stage("binding", "-crop",
+                              f"{W - l - r}x{H - t - b}+{l}+{t}", "+repage")
+                        W, H = W - l - r, H - t - b
+                        report.append(f"cut a solid band of it away: "
+                                      f"L/R/T/B = {l}/{r}/{t}/{b} px")
+                        # the crop exposes a fresh border: whatever the band was
+                        # hiding is now the outermost pixel, so flood once more
+                        step += 1
+                        again = f"{out_png}.s{step}-border2.png"
+                        got2, share2, _ = clean_border(cur, again, o.edge_band)
+                        if got2:
+                            cur = got2
+                            report.append(f"second pass on the new border "
+                                          f"({share2:.1f}%)")
+                elif share:
+                    report.append(f"border cleanup skipped: it would have "
+                                  f"repainted {share:.0f}% of the page")
+        elif o.rectify == "on":
+            sys.exit(f"a4norm: --rectify on, but no sheet quad found: {why}")
+        else:
+            report.append(f"no rectification: {why}")
+
+    # 2. rotate to the target orientation
+    w0, h0 = dims(cur)
     if o.rotate == "auto":
         # A near-square page has no meaningful orientation, so a 1% difference
         # between the sides is noise, not a decision — rotating on it turns a
@@ -225,9 +526,10 @@ def process_page(src, out_png, o, report):
         stage("rot", "-rotate", o.rotate)
         report.append(f"rotated {o.rotate}°")
 
-    # 2. cut the photographic border (desk, shadow, sheet edge)
+    # 3. cut the photographic border (desk, shadow, sheet edge). Pointless
+    #    after a rectify — the quad already ended exactly at the sheet.
     flags, span, shave = {}, {}, {"l": 0, "t": 0}
-    if not o.no_trim:
+    if not o.no_trim and not rectified:
         dl, dr, dt, db, flags = detect_border(cur, o.trim_band / 100.0, o.trim_step)
         iw, ih = (int(x) for x in fmt(cur, "%w %h").split())
         # The detected step IS the sheet boundary, so the span between two
@@ -249,7 +551,7 @@ def process_page(src, out_png, o, report):
             % (cut["l"], cut["r"], cut["t"], cut["b"], sh,
                ",".join(k for k, v in flags.items() if v) or "none"))
 
-    # 3. flat-field: divide by a smoothed background estimate -> even white paper
+    # 4. flat-field: divide by a smoothed background estimate -> even white paper
     iw, ih = (int(x) for x in fmt(cur, "%w %h").split())
     stage("flat",
           "(", "+clone", "-colorspace", "gray",
@@ -258,11 +560,14 @@ def process_page(src, out_png, o, report):
           "-resize", f"{iw}x{ih}!", ")",
           "-compose", "Divide", "-composite")
 
-    # 4. deskew — AFTER the flat-field on purpose. The angle is measured on a
+    # 5. deskew — AFTER the flat-field on purpose. The angle is measured on a
     #    binarized copy, and on a dim photo the whole sheet falls below the
     #    threshold and reads as one blob, so a real tilt is measured as 0.0deg.
     #    Once the paper is white, the text lines are what the estimator sees.
-    if not o.no_deskew:
+    if not o.no_deskew and not rectified:
+        # After a rectify the quad IS the page orientation. Re-measuring it from
+        # text baselines then fights it, and on handwriting the estimator has no
+        # baselines worth trusting: it read +1.61 deg off an already-flat page.
         ang = deskew_angle(cur)
         if o.deskew_min <= abs(ang) <= 5.0:
             before = tuple(int(x) for x in fmt(cur, "%w %h").split())
@@ -292,7 +597,7 @@ def process_page(src, out_png, o, report):
         else:
             report.append(f"skew {ang:+.2f}° — left as is")
 
-    # 5. neutralize the photo's colour cast on the ink, keep genuinely coloured ink
+    # 6. neutralize the photo's colour cast on the ink, keep genuinely coloured ink
     if o.gray:
         stage("gray", "-colorspace", "gray", "-colorspace", "sRGB",
               "-type", "TrueColor")
@@ -327,10 +632,10 @@ def process_page(src, out_png, o, report):
         magick(gray, flat, mx, "-compose", "Over", "-composite", f"PNG24:{cur}")
         report.append(f"ink neutralized, coloured ink kept on {share:.3f}% of the page")
 
-    # 6. tone: paper to white, ink deep — percentile based, not a fixed curve
+    # 7. tone: paper to white, ink deep — percentile based, not a fixed curve
     stage("tone", "-contrast-stretch", f"{o.black_clip}%x{o.white_clip}%")
 
-    # 7. erase leftover smooth haze: a soft shadow, a finger, an edge glow.
+    # 8. erase leftover smooth haze: a soft shadow, a finger, an edge glow.
     #    Bright AND featureless -> paper. Anything with structure (ink, a faint
     #    stamp, a pencil note) has local variance and survives.
     if not o.no_haze:
@@ -346,7 +651,7 @@ def process_page(src, out_png, o, report):
         magick(cur, hz, "-compose", "Screen", "-composite", nxt)
         cur = nxt
 
-    # 8. clean the paper to pure white, protecting a 1px ring around the ink
+    # 9. clean the paper to pure white, protecting a 1px ring around the ink
     if not o.no_flatten_paper:
         stage("white",
               "(", "+clone", "-colorspace", "gray",
@@ -354,7 +659,7 @@ def process_page(src, out_png, o, report):
               "-morphology", "Erode", "Octagon:1", ")",
               "-compose", "Screen", "-composite")
 
-    # 9. fit onto A4
+    # 10. fit onto A4
     iw, ih = (int(x) for x in fmt(cur, "%w %h").split())
     pw = round(210 / MM * o.dpi)
     ph = round(297 / MM * o.dpi)
@@ -362,7 +667,10 @@ def process_page(src, out_png, o, report):
         pw, ph = ph, pw
 
     scale, off_x, off_y, mode_used = None, None, None, None
-    if o.fit in ("auto", "edges"):
+    if rectified and o.fit == "auto":
+        scale = min(pw / iw, ph / ih)
+        mode_used = "frame (the rectified quad is the sheet)"
+    if scale is None and o.fit in ("auto", "edges"):
         # Both edges of one axis found => that axis spans the whole sheet, so it
         # gives the true px-per-mm without guessing anything about the layout.
         if flags.get("top") and flags.get("bottom"):
@@ -463,6 +771,9 @@ def main():
     p.add_argument("--landscape", action="store_true", help="A4 landscape")
     p.add_argument("--rotate", default="auto",
                    choices=["auto", "0", "90", "180", "270"])
+    p.add_argument("--rectify", default="auto", choices=["auto", "on", "off"],
+                   help="warp the sheet's quadrilateral flat before anything "
+                        "else; auto = only when a convincing quad is found")
     p.add_argument("--fit", default="auto",
                    choices=["auto", "edges", "content", "frame"],
                    help="how to derive the scale onto A4")
@@ -483,6 +794,11 @@ def main():
     g.add_argument("--trim-shave", type=float, default=1.0,
                    help="%% of the short side shaved inside a detected edge, to "
                         "drop the edge shadow (does not affect the A4 scale)")
+    g.add_argument("--rect-inset", type=float, default=0.8,
+                   help="%% the detected quad is pulled in before warping")
+    g.add_argument("--edge-band", type=float, default=10.0,
+                   help="%% of the short side the border flood may reach in")
+    g.add_argument("--no-edge-clean", action="store_true")
     g.add_argument("--close", type=int, default=6,
                    help="ink-removal radius for the background estimate")
     g.add_argument("--bg-scale", type=float, default=6.0,
@@ -503,7 +819,7 @@ def main():
                    help="%% local std below which an area counts as featureless")
     g.add_argument("--no-haze", action="store_true",
                    help="keep soft shadows / smooth light-grey fills")
-    g.add_argument("--paper-thr", type=float, default=91.0,
+    g.add_argument("--paper-thr", type=float, default=80.0,
                    help="%% brightness above which paper is cleaned to pure white")
     g.add_argument("--sharpen", type=float, default=0.55)
     g.add_argument("--content-min", type=float, default=45.0,

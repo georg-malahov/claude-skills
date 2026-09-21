@@ -41,6 +41,8 @@ default, JPEG-compressed without chroma subsampling.
 | Step | Why |
 |---|---|
 | extract, don't render, a PDF's embedded image | rendering applies the ICC profile and flattens the tonal range |
+| rectify the sheet's quadrilateral | a photo shot at an angle is a trapezoid on a desk; no amount of cropping fixes that, and every later step assumes a flat page |
+| erase what is connected to the frame edge | desk, shadow and spiral binding reach the border — sheet content never does, so ink is untouchable by construction |
 | trim the photographic border | the desk, the shadow line and the sheet's own edge are not part of the document |
 | flat-field the illumination | uneven camera light becomes even white paper — this is the step that makes it read as a scan |
 | deskew above 0.4°, under 5°, *after* the flat-field | the angle is measured on a binarized copy; on a dim photo the whole sheet falls below the threshold and a real tilt measures as 0.0° |
@@ -55,7 +57,9 @@ See [skills/scan/SKILL.md](skills/scan/SKILL.md) for the symptom → flag table.
 
 ## Limits
 
-- No perspective correction — shoot square-on, or the keystone stays.
+- Rectification needs the sheet to stand out: bright and low-chroma against a
+  darker or coloured surface. White paper on a white desk does not separate, the
+  quad is refused with a reason, and the keystone stays.
 - Pages of one document are processed independently, so the scale can differ by
   a few tenths of a percent between them.
 - The haze filter can erase a genuinely smooth light-grey fill (`--no-haze`).
