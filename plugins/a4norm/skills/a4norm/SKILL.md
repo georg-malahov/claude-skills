@@ -98,13 +98,21 @@ Useful variants:
    content cannot reach the border, so ink is untouchable by construction.
 3. **Or decide the frame holds no document.** No accepted quad *and* a
    paper-like area under `--photo-paper` (20%) means somebody is turning
-   snapshots into a PDF, not scanning. Everything below is skipped and the
-   picture is fitted onto the page as shot, at `--photo-dpi` (200) and
-   `--photo-quality` (82) with 4:2:0 chroma; a landscape photo turns the page
+   snapshots into a PDF, not scanning. This is decided BEFORE anything touches
+   the pixels, and the photo path is a single early return — the only things
+   that happen are the geometric fit onto the page and the JPEG encode at
+   `--photo-dpi` (200) and `--photo-quality` (82) with 4:2:0 chroma. No
+   flat-field, no tone, no haze filter, no paper-whitening, no ink
+   neutralisation, no sharpen, and `--gray` does not apply either (the run says
+   so rather than ignoring it silently). A landscape photo turns the page
    rather than being rotated. Measured paper-like area is 9% for a photo of a
-   desk against 40–97% for every real document, so the threshold sits in a wide
-   gap — but say so in the report, because the user may disagree. `--photo off`
-   forces the scanner treatment, `--photo on` forces the short path.
+   screen against 40–83% for every real document and test page, so the
+   threshold sits in a wide gap — but say so in the report, because the user
+   may disagree. `--photo off` forces the scanner treatment, `--photo on`
+   forces the short path. Note the test is only consulted when no sheet quad
+   was accepted: a snapshot of a whiteboard or a lit screen gets rectified and
+   scanned however small its paper-like area is, and `--photo on` is the way
+   out.
 4. **Orient** — EXIF, plus a 90° rotation if the frame is landscape and the
    target is portrait (`--rotate`; sides within `--rotate-tol` count as square).
 5. **Trim the photographic border** — skipped after a rectify, which already
@@ -164,6 +172,9 @@ with what scale, so a wrong choice is visible without opening the file.
 | the page was shot at an angle and came out as a trapezoid | the quad was refused — the report says why. `--rectify on` fails loudly instead of carrying on, which is the quickest way to see the reason |
 | rectification fired on something that is not a sheet | `--rectify off` |
 | a binding or a desk edge survived along one side | `--edge-band 15` (how far in the border flood may reach) |
+| a form's shaded panel got erased, or the page lost a whole column at one edge | it was judged desk — `--band-dark 75`, or `--band-structure 3` |
+| a shaded panel survived but its outermost few mm went white | `--edge-keep 0.5` |
+| a binding or dark desk band stayed after a rectify | it was judged document — `--band-dark 45`, or `--band-structure 10` |
 | part of the page was repainted as if it were desk | `--no-edge-clean` |
 | file too big | `--dpi 200`, `--quality 80`, or `--gray` |
 
