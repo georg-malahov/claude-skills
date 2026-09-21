@@ -112,7 +112,9 @@ with what scale, so a wrong choice is visible without opening the file.
 | black print stayed brown / blue-ish | `--chroma 10` (less sensitive), or `--gray` |
 | text looks washed out | `--white-clip 4`; if strokes look eaten, `--paper-thr 94` |
 | a photo or a dark graphic on the page got bleached | `--close 12 --bg-scale 3` (gentler background estimate), or `--no-flatten-paper` |
-| the page came out sideways | `--rotate 90` / `180` / `270` |
+| the page came out sideways | `--rotate 90` / `180` / `270`; for a near-square page `--rotate 0` (auto-rotate ignores side differences under `--rotate-tol`, 5%) |
+| a handwritten page came out tilted, or the run tilted it | `--no-deskew` — the estimator reads text baselines, and handwriting has none worth trusting |
+| the page was shot at an angle and came out as a trapezoid | no flag: there is no perspective correction. Rectify the page quad first (see *Limits*), then run with `--no-trim --fit frame` |
 | file too big | `--dpi 200`, `--quality 80`, or `--gray` |
 
 `--dry-run` after a change shows the new decisions without writing a file.

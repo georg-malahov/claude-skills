@@ -212,8 +212,13 @@ def process_page(src, out_png, o, report):
 
     # 1. rotate to the target orientation
     if o.rotate == "auto":
-        landscape_img = w0 > h0
-        if landscape_img != o.landscape:
+        # A near-square page has no meaningful orientation, so a 1% difference
+        # between the sides is noise, not a decision — rotating on it turns a
+        # notebook page sideways for no reason.
+        tol = 1.0 + o.rotate_tol / 100.0
+        landscape_img = w0 > h0 * tol
+        portrait_img = h0 > w0 * tol
+        if (o.landscape and portrait_img) or (not o.landscape and landscape_img):
             stage("rot", "-rotate", "90")
             report.append("rotated 90°")
     elif o.rotate != "0":
@@ -503,6 +508,9 @@ def main():
     g.add_argument("--sharpen", type=float, default=0.55)
     g.add_argument("--content-min", type=float, default=45.0,
                    help="%% of frame width the ink block must span for a content fit")
+    g.add_argument("--rotate-tol", type=float, default=5.0,
+                   help="%% the sides must differ by before --rotate auto turns "
+                        "a page; below it the page counts as square")
     g.add_argument("--deskew-min", type=float, default=0.4,
                    help="degrees below which skew is left alone")
     g.add_argument("--no-trim", action="store_true")
