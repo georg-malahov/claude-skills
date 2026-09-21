@@ -50,30 +50,24 @@ binary — use the container there.
 
 ## Docker
 
-Nothing in the tool is macOS-specific. The image is Alpine + those three
-dependencies, 104 MB:
+The image and its Dockerfile live in the [a4norm
+repository](https://github.com/georg-malahov/a4norm) — one source, no vendored
+copy to drift:
 
 ```
-docker build -f docker/Dockerfile -t a4norm:1.1.0 .
-docker run --rm -v "$HOME/Downloads:/work" a4norm:1.1.0 --preview /work/photo.HEIC
+docker run --rm -v "$PWD:/work" ghcr.io/georg-malahov/a4norm:latest \
+  -o /work/doc.pdf /work/p1.HEIC /work/p2.HEIC
+
+docker run --rm -p 8080:8080 ghcr.io/georg-malahov/a4norm:latest serve
 ```
 
-or with compose (read-only root, no network, files via `SCAN_DIR`):
-
-```
-SCAN_DIR=~/Downloads docker compose -f docker/docker-compose.yml run --rm scan photo.HEIC
-```
-
-The build runs a smoke test — a synthetic page through the whole pipeline, plus
-a check that HEIC decodes — so a missing delegate fails the build instead of
-surprising someone's first real document.
-
-**Output is byte-identical to a macOS run** (verified on a 12 MP HEIC: same file
-size, RMSE 0 between the rendered pages). That parity is not free: ImageMagick
-7.1.1 and 7.1.2 swap the meaning of the `Divide_Dst` / `Divide_Src` compose
-aliases, so the flat-field silently inverts on the wrong build and the page
-comes out blank and speckled. The script probes the operators on two known
-pixels at startup instead of trusting the names.
+104 MB, `linux/amd64` and `linux/arm64`, no ghostscript. Output is byte-identical
+to a local run — verified by SHA-256 across macOS/arm64, Linux/arm64 and
+Linux/amd64 on a 12 MP HEIC. That parity is not free: ImageMagick 7.1.1 and
+7.1.2 swap the meaning of the `Divide_Dst` / `Divide_Src` compose aliases, so the
+flat-field silently inverts on the wrong build and the page comes out blank and
+speckled. The script probes the operators on two known pixels at startup instead
+of trusting the names.
 
 ## Speed
 
