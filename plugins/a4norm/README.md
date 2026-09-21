@@ -1,0 +1,139 @@
+# a4norm
+
+A photo of a paper document is not a scan. This plugin turns one into a scan:
+even white paper, neutral ink, no desk or shadow around the sheet, an exact A4
+page, and a file small enough to email.
+
+```
+/a4norm ~/Downloads/photo.jpg
+/a4norm page1.HEIC page2.HEIC page3.HEIC   # one multi-page PDF
+```
+
+Skill: `a4norm` · Scripts: `skills/a4norm/scripts/a4norm` (CLI) and
+`a4norm-serve` (HTTP), both standalone.
+
+The tool also lives on its own at [github.com/georg-malahov/a4norm](https://github.com/georg-malahov/a4norm)
+and as a public image `ghcr.io/georg-malahov/a4norm`. The copies here are
+vendored — change one, copy it to the other.
+
+**See it working without installing anything:** [@a4norm_bot](https://t.me/a4norm_bot)
+on Telegram runs that same image behind a chat window — send a photo, or a whole
+album, and the A4 PDF comes back.
+
+## Install
+
+```
+/plugin marketplace add georg-malahov/claude-skills
+/plugin install a4norm@georg-malahov-claude-skills
+```
+
+## Dependencies
+
+Three things, and nothing else — no Python packages at all, the script is
+stdlib-only:
+
+| | why | note |
+|---|---|---|
+| Python 3.8+ | the script | stdlib only: argparse, collections, math, os, re, shutil, subprocess, sys, tempfile |
+| ImageMagick 7 (`magick`) | every pixel operation | HEIC input needs the libheif delegate |
+| poppler (`pdfinfo`, `pdfimages`, `pdftoppm`) | PDF input | — |
+
+**No ghostscript.** ImageMagick never reads a PDF here (poppler does) and the
+output PDF is written by the script itself — a JPEG per page plus a few hundred
+bytes of boilerplate — so the ~90 MB ghostscript dependency that ImageMagick
+would otherwise need to *write* a PDF on Linux is not required.
+
+```
+brew install imagemagick poppler                      # macOS
+apk add python3 imagemagick imagemagick-heic imagemagick-jpeg poppler-utils   # Alpine
+apt install python3 imagemagick poppler-utils         # Debian 13+ (ImageMagick 7)
+```
+
+Debian 12 and Ubuntu 24.04 still ship ImageMagick 6, which has no `magick`
+binary — use the container there.
+
+## Docker
+
+The image and its Dockerfile live in the [a4norm
+repository](https://github.com/georg-malahov/a4norm) — one source, no vendored
+copy to drift:
+
+```
+docker run --rm -v "$PWD:/work" ghcr.io/georg-malahov/a4norm:latest \
+  -o /work/doc.pdf /work/p1.HEIC /work/p2.HEIC
+
+docker run --rm -p 8080:8080 ghcr.io/georg-malahov/a4norm:latest serve
+```
+
+104 MB, `linux/amd64` and `linux/arm64`, no ghostscript. Output is byte-identical
+to a local run — verified by SHA-256 across macOS/arm64, Linux/arm64 and
+Linux/amd64 on a 12 MP HEIC. That parity is not free: ImageMagick 7.1.1 and
+7.1.2 swap the meaning of the `Divide_Dst` / `Divide_Src` compose aliases, so the
+flat-field silently inverts on the wrong build and the page comes out blank and
+speckled. The script probes the operators on two known pixels at startup instead
+of trusting the names.
+
+## Speed
+
+Per page, on an M-series Mac (the container is within ~15% of it):
+
+| input | path | time |
+|---|---|---|
+| 12 MP HEIC photo of a page on a desk | rectify | ~26–31 s |
+| 5.5 MP photo embedded in a PDF | no rectify | ~17 s |
+| 4.7 MP JPEG | no rectify | ~11 s |
+
+Roughly half of it is ImageMagick on full-resolution pixels (the flat-field
+alone is ~6 s on 12 MP); the two pure-Python passes — quad detection and the
+border flood — run on 400 and 520 px grids and cost under 3 s together.
+
+## Use the script directly
+
+```bash
+a4norm photo.jpg                       # -> photo-A4.pdf next to the input
+a4norm --preview -o report.pdf scan.pdf
+a4norm --gray --dpi 200 *.heic         # one PDF per input
+a4norm --dry-run photo.jpg             # analyze and report, write nothing
+```
+
+Input: JPG / PNG / HEIC / PDF (including multi-page). Output: A4 PDF, 300 dpi by
+default, JPEG-compressed without chroma subsampling.
+
+## What it does
+
+| Step | Why |
+|---|---|
+| extract, don't render, a PDF's embedded image | rendering applies the ICC profile and flattens the tonal range |
+| rectify the sheet's quadrilateral | a photo shot at an angle is a trapezoid on a desk; no amount of cropping fixes that, and every later step assumes a flat page |
+| erase what is connected to the frame edge | desk, shadow and spiral binding reach the border — sheet content never does, so ink is untouchable by construction |
+| trim the photographic border | the desk, the shadow line and the sheet's own edge are not part of the document |
+| flat-field the illumination | uneven camera light becomes even white paper — this is the step that makes it read as a scan |
+| deskew above 0.4°, under 5°, *after* the flat-field | the angle is measured on a binarized copy; on a dim photo the whole sheet falls below the threshold and a real tilt measures as 0.0° |
+| neutralize the ink cast, keep coloured ink | a photo tints black print warm; a blue signature or a red stamp must stay coloured |
+| tone by histogram percentiles | adapts to the actual file instead of a curve tuned on one photo |
+| erase bright featureless haze | a soft shadow or a finger disappears; anything with structure survives |
+| clean paper to pure white | with a 1 px guard ring around every glyph |
+| fit to A4 | from the real sheet edges when visible, otherwise from the ink block and standard margins |
+
+Every parameter is a flag; `--dry-run` prints what the script decided and why.
+See [skills/a4norm/SKILL.md](skills/a4norm/SKILL.md) for the symptom → flag table.
+
+## Limits
+
+- Rectification needs the sheet to stand out: bright and low-chroma against a
+  darker or coloured surface. White paper on a white desk does not separate, the
+  quad is refused with a reason, and the keystone stays.
+- Pages of one document are processed independently, so the scale can differ by
+  a few tenths of a percent between them.
+- The haze filter can erase a genuinely smooth light-grey fill (`--no-haze`).
+- The content-based fit assumes ordinary margins; a form printed edge to edge
+  needs `--fit frame` or explicit `--margins`.
+
+## Verify the result, always
+
+The report can look perfectly sane while the page is ruined. Use `--preview` and
+actually look at the PNG. Every bug found in this pipeline so far — a mask
+composited at the wrong offset that erased the text, a bbox offset silently
+reading `+0+0` that pushed every line off the right edge, a first line of text
+mistaken for the sheet edge — produced a valid-looking A4 PDF and a plausible
+report.

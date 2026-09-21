@@ -16,6 +16,7 @@ Add the marketplace and install the plugin you need:
 | Plugin | Description |
 |--------|-------------|
 | [process-video](plugins/process-video/) | Process and share videos: optimize, transcribe, subtitles, and share via tunnel with `/video` command |
+| [a4norm](plugins/a4norm/) | `/a4norm` — photos of paper documents become one scanner-grade A4 PDF: perspective corrected, white paper, neutral ink, no desk or binding |
 | [ralph](plugins/ralph/) | `/ralph` — native agentic loop: brainstorm → plan → execute → review → e2e → pr → demo, plus ad-hoc `/ralph fix` (test-first bug squashing) |
 
 ## Adding New Plugins
