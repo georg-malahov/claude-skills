@@ -16,6 +16,10 @@ The tool also lives on its own at [github.com/georg-malahov/a4norm](https://gith
 and as a public image `ghcr.io/georg-malahov/a4norm`. The copies here are
 vendored — change one, copy it to the other.
 
+**See it working without installing anything:** [@a4norm_bot](https://t.me/a4norm_bot)
+on Telegram runs that same image behind a chat window — send a photo, or a whole
+album, and the A4 PDF comes back.
+
 ## Install
 
 ```
