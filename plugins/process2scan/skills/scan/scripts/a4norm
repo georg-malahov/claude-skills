@@ -159,6 +159,47 @@ def deskew_angle(path):
         return 0.0
 
 
+_OP_CACHE = {}
+
+
+def _probe_op(names, want_lo, want_hi):
+    """Pick the compose alias that means "destination OP source" in THIS build.
+
+    ImageMagick 7.1.1 and 7.1.2 disagree about these names: Divide_Dst on one is
+    Divide_Src on the other. A flat-field written with either name therefore
+    inverts on the wrong build — the background gets divided by the page, every
+    stroke saturates to white, and the output is a blank sheet full of speckle.
+    It is a silent failure with a perfectly normal-looking report, so the names
+    are never trusted: probe them on two known pixels and use what works.
+    """
+    key = tuple(names)
+    if key in _OP_CACHE:
+        return _OP_CACHE[key]
+    for n in names:
+        try:
+            v = float(run(["magick", "-size", "1x1", "xc:#808080",
+                           "-size", "1x1", "xc:#404040",
+                           "-compose", n, "-composite",
+                           "-format", "%[fx:u*255]", "info:"]).strip())
+        except (subprocess.CalledProcessError, ValueError):
+            continue
+        if want_lo <= v <= want_hi:
+            _OP_CACHE[key] = n
+            return n
+    _OP_CACHE[key] = names[0]
+    return names[0]
+
+
+def op_divide():
+    """dst / src — 128/64 = 2, which saturates high."""
+    return _probe_op(["Divide_Dst", "Divide_Src", "Divide"], 200, 100000)
+
+
+def op_minus():
+    """dst - src — 128-64 = 64."""
+    return _probe_op(["MinusSrc", "MinusDst", "Minus"], 40, 90)
+
+
 def raw_rgb(path, w, h):
     """Downscaled 8-bit RGB bytes, row-major."""
     return subprocess.run(
@@ -553,12 +594,17 @@ def process_page(src, out_png, o, report):
 
     # 4. flat-field: divide by a smoothed background estimate -> even white paper
     iw, ih = (int(x) for x in fmt(cur, "%w %h").split())
+    # The background estimate is in COLOUR on purpose. A grey estimate divides
+    # the paper's cast into itself and leaves it: cream paper stays cream, and
+    # then its own tint on the ink reads as "coloured ink" and gets preserved,
+    # which is how a black biro came out brown. A per-channel estimate white-
+    # balances the sheet, so what survives in colour is really coloured.
     stage("flat",
-          "(", "+clone", "-colorspace", "gray",
+          "(", "+clone",
           "-morphology", "Close", f"Octagon:{o.close}",
           "-resize", f"{o.bg_scale}%", "-blur", "0x6",
           "-resize", f"{iw}x{ih}!", ")",
-          "-compose", "Divide", "-composite")
+          "-compose", op_divide(), "-composite")
 
     # 5. deskew — AFTER the flat-field on purpose. The angle is measured on a
     #    binarized copy, and on a dim photo the whole sheet falls below the
@@ -617,7 +663,7 @@ def process_page(src, out_png, o, report):
                "-background", "white", "-compose", "Darken", "-flatten", lo)
         magick(flat, "-colorspace", "gray", "-threshold", f"{o.ink_dark}%",
                "-negate", dk)
-        magick(hi, lo, "-compose", "MinusSrc", "-composite",
+        magick(hi, lo, "-compose", op_minus(), "-composite",
                "-threshold", f"{o.chroma}%",
                dk, "-compose", "Multiply", "-composite",
                "-morphology", "Open", "Octagon:1",
@@ -720,6 +766,68 @@ def process_page(src, out_png, o, report):
     return page
 
 
+def write_pdf(jpegs, out, dpi, label=None):
+    """Write a JPEG-per-page PDF by hand.
+
+    ImageMagick can do this, but only where its PDF coder exists: on Alpine (and
+    anywhere else that splits the coder out) writing a PDF silently needs
+    ghostscript, a ~90 MB dependency pulled in for a file format that is, for a
+    single image per page, a few hundred bytes of boilerplate. Writing it here
+    keeps the tool at "ImageMagick + poppler" on every platform and makes the
+    output byte-identical across them.
+    """
+    objs = []
+
+    def add(body):
+        objs.append(body)
+        return len(objs)
+
+    kids = []
+    pages_id = 2  # fixed: catalog is 1, pages is 2
+    add(b"<< /Type /Catalog /Pages 2 0 R >>")
+    add(b"")  # placeholder for /Pages, filled once the kids are known
+
+    for jp in jpegs:
+        data = open(jp, "rb").read()
+        w, h = (int(x) for x in fmt(jp, "%w %h").split())
+        chans = fmt(jp, "%[channels]").lower()
+        space = b"/DeviceGray" if "gray" in chans else b"/DeviceRGB"
+        pw = w * 72.0 / dpi
+        ph = h * 72.0 / dpi
+        img_id = add(b"<< /Type /XObject /Subtype /Image /Width " + str(w).encode() +
+                     b" /Height " + str(h).encode() + b" /ColorSpace " + space +
+                     b" /BitsPerComponent 8 /Filter /DCTDecode /Length " +
+                     str(len(data)).encode() + b" >>\nstream\n" + data +
+                     b"\nendstream")
+        content = f"q {pw:.4f} 0 0 {ph:.4f} 0 0 cm /Im0 Do Q".encode()
+        cont_id = add(b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" +
+                      content + b"\nendstream")
+        page_id = add(f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox "
+                      f"[0 0 {pw:.4f} {ph:.4f}] /Resources << /XObject << /Im0 "
+                      f"{img_id} 0 R >> /ProcSet [/PDF /ImageB /ImageC] >> "
+                      f"/Contents {cont_id} 0 R >>".encode())
+        kids.append(page_id)
+
+    objs[pages_id - 1] = (b"<< /Type /Pages /Count " + str(len(kids)).encode() +
+                          b" /Kids [" +
+                          b" ".join(f"{k} 0 R".encode() for k in kids) + b"] >>")
+
+    buf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0] * (len(objs) + 1)
+    for i, body in enumerate(objs, start=1):
+        offsets[i] = len(buf)
+        buf += str(i).encode() + b" 0 obj\n" + body + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n"
+    buf += b"0000000000 65535 f \n"
+    for i in range(1, len(objs) + 1):
+        buf += f"{offsets[i]:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF\n")
+    open(out, "wb").write(bytes(buf))
+    return out
+
+
 def cleanup(pattern_base):
     d = os.path.dirname(pattern_base) or "."
     base = os.path.basename(pattern_base)
@@ -749,9 +857,13 @@ def build(src, o):
         if o.dry_run:
             print("  (dry run — no PDF written)")
             return None
-        magick(*pages, "-density", str(o.dpi), "-units", "PixelsPerInch",
-               "-compress", "JPEG", "-quality", str(o.quality),
-               "-sampling-factor", "1x1", out)
+        jpegs = []
+        for i, page in enumerate(pages):
+            jp = os.path.join(wd, f"page-{i:03d}.jpg")
+            magick(page, "-quality", str(o.quality),
+                   "-sampling-factor", "1x1", "-strip", jp)
+            jpegs.append(jp)
+        write_pdf(jpegs, out, o.dpi)
         if o.preview:
             magick(pages[0], "-resize", "900x", os.path.splitext(out)[0] + "-preview.png")
     return out

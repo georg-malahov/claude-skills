@@ -33,7 +33,14 @@ done
 ```
 
 Requires `magick` (ImageMagick 7) and poppler (`pdfinfo`, `pdfimages`,
-`pdftoppm`). No ghostscript. On macOS: `brew install imagemagick poppler`.
+`pdftoppm`); the script itself is stdlib-only Python. **No ghostscript** — the
+output PDF is written by the script, not by ImageMagick, which is what keeps
+Linux from needing it. On macOS: `brew install imagemagick poppler`. There is a
+104 MB container in `docker/` whose output is byte-identical; use it where only
+ImageMagick 6 is available (Debian 12, Ubuntu 24.04).
+
+Expect ~26–31 s for a 12 MP phone photo that needs rectifying, ~11–17 s for a
+smaller one that does not.
 
 ## Default flow
 

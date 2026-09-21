@@ -1,0 +1,24 @@
+# a4norm in a container.
+#
+#   docker compose -f docker/docker-compose.yml build
+#   SCAN_DIR=~/Downloads docker compose -f docker/docker-compose.yml run --rm scan photo.HEIC
+#
+# Drop your files in ./work (or point SCAN_DIR at any folder); paths passed to
+# the service are relative to that folder inside the container.
+services:
+  scan:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: a4norm:1.1.0
+    volumes:
+      - ${SCAN_DIR:-../work}:/work
+    working_dir: /work
+    # A 12 MP photo peaks around 700 MB in ImageMagick; give it room or the
+    # resize steps start spilling to disk and the run takes minutes.
+    mem_limit: 2g
+    # Everything it needs is in the image and the mounted folder.
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g

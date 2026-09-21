@@ -18,11 +18,71 @@ own).
 /plugin install process2scan@georg-malahov-claude-skills
 ```
 
-Requires ImageMagick 7 and poppler — no ghostscript:
+## Dependencies
+
+Three things, and nothing else — no Python packages at all, the script is
+stdlib-only:
+
+| | why | note |
+|---|---|---|
+| Python 3.8+ | the script | stdlib only: argparse, collections, math, os, re, shutil, subprocess, sys, tempfile |
+| ImageMagick 7 (`magick`) | every pixel operation | HEIC input needs the libheif delegate |
+| poppler (`pdfinfo`, `pdfimages`, `pdftoppm`) | PDF input | — |
+
+**No ghostscript.** ImageMagick never reads a PDF here (poppler does) and the
+output PDF is written by the script itself — a JPEG per page plus a few hundred
+bytes of boilerplate — so the ~90 MB ghostscript dependency that ImageMagick
+would otherwise need to *write* a PDF on Linux is not required.
 
 ```
-brew install imagemagick poppler
+brew install imagemagick poppler                      # macOS
+apk add python3 imagemagick imagemagick-heic imagemagick-jpeg poppler-utils   # Alpine
+apt install python3 imagemagick poppler-utils         # Debian 13+ (ImageMagick 7)
 ```
+
+Debian 12 and Ubuntu 24.04 still ship ImageMagick 6, which has no `magick`
+binary — use the container there.
+
+## Docker
+
+Nothing in the tool is macOS-specific. The image is Alpine + those three
+dependencies, 104 MB:
+
+```
+docker build -f docker/Dockerfile -t a4norm:1.1.0 .
+docker run --rm -v "$HOME/Downloads:/work" a4norm:1.1.0 --preview /work/photo.HEIC
+```
+
+or with compose (read-only root, no network, files via `SCAN_DIR`):
+
+```
+SCAN_DIR=~/Downloads docker compose -f docker/docker-compose.yml run --rm scan photo.HEIC
+```
+
+The build runs a smoke test — a synthetic page through the whole pipeline, plus
+a check that HEIC decodes — so a missing delegate fails the build instead of
+surprising someone's first real document.
+
+**Output is byte-identical to a macOS run** (verified on a 12 MP HEIC: same file
+size, RMSE 0 between the rendered pages). That parity is not free: ImageMagick
+7.1.1 and 7.1.2 swap the meaning of the `Divide_Dst` / `Divide_Src` compose
+aliases, so the flat-field silently inverts on the wrong build and the page
+comes out blank and speckled. The script probes the operators on two known
+pixels at startup instead of trusting the names.
+
+## Speed
+
+Per page, on an M-series Mac (the container is within ~15% of it):
+
+| input | path | time |
+|---|---|---|
+| 12 MP HEIC photo of a page on a desk | rectify | ~26–31 s |
+| 5.5 MP photo embedded in a PDF | no rectify | ~17 s |
+| 4.7 MP JPEG | no rectify | ~11 s |
+
+Roughly half of it is ImageMagick on full-resolution pixels (the flat-field
+alone is ~6 s on 12 MP); the two pure-Python passes — quad detection and the
+border flood — run on 400 and 520 px grids and cost under 3 s together.
 
 ## Use the script directly
 
