@@ -23,7 +23,7 @@ RUN apk add --no-cache \
 
 # Built from the plugin root so the skill's script is the only copy:
 #   docker build -f docker/Dockerfile -t a4norm:1.1.0 .
-COPY skills/scan/scripts/a4norm /usr/local/bin/a4norm
+COPY skills/a4norm/scripts/a4norm /usr/local/bin/a4norm
 RUN chmod +x /usr/local/bin/a4norm
 
 # Build-time smoke test: a synthetic page must survive the whole pipeline and

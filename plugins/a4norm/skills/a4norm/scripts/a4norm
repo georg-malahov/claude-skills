@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""a4norm — turn a photo of a document into a scanner-like A4 PDF.
+"""a4norm — photos of paper documents -> one scanner-grade A4 PDF.
 
-Pipeline per page:
-  raster -> orient -> trim photo border -> deskew -> flat-field (even white paper)
-  -> neutralize ink colour cast (coloured ink kept) -> tone -> clean paper to white
-  -> fit onto an A4 canvas at the target dpi -> JPEG-in-PDF
+Per page: rasterize -> rectify the sheet's quadrilateral and erase whatever
+leans in from outside it -> orient -> trim the photographic border -> flat-field
+the illumination in colour -> deskew -> neutralize the ink cast while keeping
+genuinely coloured ink -> tone by histogram percentiles -> erase bright
+featureless haze -> clean the paper to white -> fit onto A4 -> JPEG in a PDF
+this script writes itself.
 
-Needs: ImageMagick 7 (`magick`), poppler (`pdfinfo`, `pdfimages`, `pdftoppm`).
-No ghostscript required.
+Several inputs combine into ONE multi-page document; --separate gives one
+document per input. --format jpg writes images instead of a PDF.
 
-Usage:  a4norm [options] INPUT [INPUT ...]
-        a4norm --help
+Needs ImageMagick 7 (`magick`) and poppler (`pdfinfo`, `pdfimages`,
+`pdftoppm`). Python standard library only. No ghostscript.
+
+    a4norm photo.HEIC
+    a4norm -o contract.pdf page1.jpg page2.jpg page3.jpg
+    a4norm --dry-run --preview photo.HEIC
+    a4norm --help
 """
 
 import argparse
@@ -454,11 +461,11 @@ def clean_border(path, dst, band_pct, max_share=25.0, side=520):
 # --------------------------------------------------------------- page pipeline
 
 
-def rasterize(src, workdir, min_px=2400):
+def rasterize(src, workdir, min_px=2400, tag="s00"):
     """Return a list of page rasters (PNG/JPG paths), best quality available."""
     ext = os.path.splitext(src)[1].lower()
     if ext != ".pdf":
-        out = os.path.join(workdir, "page-0.png")
+        out = os.path.join(workdir, f"{tag}-page-0.png")
         magick(src, "-auto-orient", out)
         return [out]
 
@@ -470,24 +477,24 @@ def rasterize(src, workdir, min_px=2400):
     listing = run(["pdfimages", "-list", str(src)]).strip().splitlines()[2:]
     one_per_page = len(listing) == pages
     if one_per_page:
-        prefix = os.path.join(workdir, "img")
+        prefix = os.path.join(workdir, f"{tag}-img")
         run(["pdfimages", "-all", str(src), prefix])
-        got = sorted(f for f in os.listdir(workdir) if f.startswith("img-"))
+        got = sorted(f for f in os.listdir(workdir) if f.startswith(f"{tag}-img-"))
         if len(got) == pages:
             out = []
             for i, f in enumerate(got):
                 p = os.path.join(workdir, f)
-                dst = os.path.join(workdir, f"page-{i}.png")
+                dst = os.path.join(workdir, f"{tag}-page-{i}.png")
                 magick(p, "-auto-orient", dst)
                 out.append(dst)
             return out
 
-    prefix = os.path.join(workdir, "page")
+    prefix = os.path.join(workdir, f"{tag}-page")
     w = float(re.search(r"^Page size:\s+([\d.]+)", info, re.M).group(1))
     dpi = max(200, min(400, round(min_px / (w / 72.0))))
     run(["pdftoppm", "-r", str(dpi), "-png", str(src), prefix])
     return [os.path.join(workdir, f) for f in sorted(os.listdir(workdir))
-            if f.startswith("page-") and f.endswith(".png")]
+            if f.startswith(f"{tag}-page") and f.endswith(".png")]
 
 
 def process_page(src, out_png, o, report):
@@ -839,34 +846,61 @@ def cleanup(pattern_base):
 # ------------------------------------------------------------------------ main
 
 
-def build(src, o):
-    out = o.output or os.path.join(
-        os.path.dirname(os.path.abspath(src)),
-        os.path.splitext(os.path.basename(src))[0] + "-A4.pdf")
+def default_out(src, o):
+    base = os.path.splitext(os.path.basename(src))[0] + "-A4"
+    ext = ".pdf" if o.format == "pdf" else ".jpg"
+    return os.path.join(os.path.dirname(os.path.abspath(src)), base + ext)
+
+
+def build(sources, out, o):
+    """Run every source through the pipeline and emit ONE document.
+
+    Several photos of one paper document are the normal case, not the exception:
+    a contract is rarely one page. So the pages of every input, in the order
+    given, land in a single PDF.
+    """
     with tempfile.TemporaryDirectory(prefix="a4norm-") as wd:
-        rasters = rasterize(src, wd)
-        pages = []
-        for i, r in enumerate(rasters):
-            rep = []
-            page = process_page(r, os.path.join(wd, f"out-{i:03d}.png"), o, rep)
-            pages.append(page)
-            print(f"  page {i + 1}/{len(rasters)}:")
-            for line in rep:
-                print(f"    - {line}")
-            cleanup(page)
+        pages, n = [], 0
+        for si, src in enumerate(sources):
+            if len(sources) > 1:
+                print(f"  [{si + 1}/{len(sources)}] {os.path.basename(src)}")
+            rasters = rasterize(src, wd, tag=f"s{si:02d}")
+            for r in rasters:
+                rep = []
+                page = process_page(r, os.path.join(wd, f"out-{n:03d}.png"), o, rep)
+                pages.append(page)
+                n += 1
+                print(f"  page {n}:")
+                for line in rep:
+                    print(f"    - {line}")
+                cleanup(page)
         if o.dry_run:
-            print("  (dry run — no PDF written)")
+            print("  (dry run — nothing written)")
             return None
-        jpegs = []
-        for i, page in enumerate(pages):
-            jp = os.path.join(wd, f"page-{i:03d}.jpg")
-            magick(page, "-quality", str(o.quality),
-                   "-sampling-factor", "1x1", "-strip", jp)
-            jpegs.append(jp)
-        write_pdf(jpegs, out, o.dpi)
+
+        if o.format == "pdf":
+            jpegs = []
+            for i, page in enumerate(pages):
+                jp = os.path.join(wd, f"jp-{i:03d}.jpg")
+                magick(page, "-quality", str(o.quality),
+                       "-sampling-factor", "1x1", "-strip", jp)
+                jpegs.append(jp)
+            write_pdf(jpegs, out, o.dpi)
+            written = [out]
+        else:
+            stem, ext = os.path.splitext(out)
+            ext = ext or ".jpg"
+            written = []
+            for i, page in enumerate(pages):
+                dst = out if len(pages) == 1 else f"{stem}-{i + 1}{ext}"
+                magick(page, "-quality", str(o.quality),
+                       "-sampling-factor", "1x1", "-strip",
+                       "-density", str(o.dpi), "-units", "PixelsPerInch", dst)
+                written.append(dst)
         if o.preview:
-            magick(pages[0], "-resize", "900x", os.path.splitext(out)[0] + "-preview.png")
-    return out
+            magick(pages[0], "-resize", "900x",
+                   os.path.splitext(out)[0] + "-preview.png")
+    return written
 
 
 def main():
@@ -876,7 +910,13 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("inputs", nargs="+", metavar="INPUT",
                    help="PDF / JPG / PNG / HEIC")
-    p.add_argument("-o", "--output", help="output PDF (single input only)")
+    p.add_argument("-o", "--output",
+                   help="output file; with several inputs it is the one combined "
+                        "document")
+    p.add_argument("--format", default="pdf", choices=["pdf", "jpg"],
+                   help="output format")
+    p.add_argument("--separate", action="store_true",
+                   help="one document per input instead of one combined document")
     p.add_argument("--dpi", type=int, default=300)
     p.add_argument("--quality", type=int, default=88, help="JPEG quality")
     p.add_argument("--gray", action="store_true", help="grayscale output")
@@ -948,8 +988,6 @@ def main():
                    help="keep paper texture instead of cleaning it to white")
     o = p.parse_args()
 
-    if o.output and len(o.inputs) > 1:
-        sys.exit("a4norm: -o works with a single input")
     try:
         o.ml, o.mr, o.mt = (float(x) for x in o.margins.split(","))
     except ValueError:
@@ -961,11 +999,16 @@ def main():
     for src in o.inputs:
         if not os.path.exists(src):
             sys.exit(f"a4norm: no such file: {src}")
-        print(f"{src}")
-        out = build(src, o)
-        if out:
-            size = os.path.getsize(out)
-            print(f"  -> {out}  ({size / 1024:.0f} KB)")
+
+    # One document out of everything given, unless --separate asks otherwise.
+    groups = ([[s] for s in o.inputs] if o.separate else [o.inputs])
+    for group in groups:
+        print(", ".join(group) if len(group) > 1 else group[0])
+        out = o.output if (o.output and len(groups) == 1) else default_out(group[0], o)
+        written = build(group, out, o)
+        if written:
+            for w in written:
+                print(f"  -> {w}  ({os.path.getsize(w) / 1024:.0f} KB)")
 
 
 if __name__ == "__main__":

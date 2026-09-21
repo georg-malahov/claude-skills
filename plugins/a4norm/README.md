@@ -1,21 +1,26 @@
-# process2scan
+# a4norm
 
 A photo of a paper document is not a scan. This plugin turns one into a scan:
 even white paper, neutral ink, no desk or shadow around the sheet, an exact A4
 page, and a file small enough to email.
 
 ```
-/scan ~/Downloads/photo.jpg
+/a4norm ~/Downloads/photo.jpg
+/a4norm page1.HEIC page2.HEIC page3.HEIC   # one multi-page PDF
 ```
 
-Skill: `scan` · Script: `skills/scan/scripts/a4norm` (standalone, runnable on its
-own).
+Skill: `a4norm` · Scripts: `skills/a4norm/scripts/a4norm` (CLI) and
+`a4norm-serve` (HTTP), both standalone.
+
+The tool also lives on its own at [github.com/georg-malahov/a4norm](https://github.com/georg-malahov/a4norm)
+and as a public image `ghcr.io/georg-malahov/a4norm`. The copies here are
+vendored — change one, copy it to the other.
 
 ## Install
 
 ```
 /plugin marketplace add georg-malahov/claude-skills
-/plugin install process2scan@georg-malahov-claude-skills
+/plugin install a4norm@georg-malahov-claude-skills
 ```
 
 ## Dependencies
@@ -113,7 +118,7 @@ default, JPEG-compressed without chroma subsampling.
 | fit to A4 | from the real sheet edges when visible, otherwise from the ink block and standard margins |
 
 Every parameter is a flag; `--dry-run` prints what the script decided and why.
-See [skills/scan/SKILL.md](skills/scan/SKILL.md) for the symptom → flag table.
+See [skills/a4norm/SKILL.md](skills/a4norm/SKILL.md) for the symptom → flag table.
 
 ## Limits
 

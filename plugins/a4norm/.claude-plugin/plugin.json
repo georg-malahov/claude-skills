@@ -1,0 +1,21 @@
+{
+  "name": "a4norm",
+  "version": "1.2.0",
+  "description": "Turn photos of paper documents into scanner-grade A4 PDFs: perspective corrected, even white paper, neutral ink with coloured signatures and stamps preserved, desk and binding removed, exact A4 page. Several photos combine into one multi-page PDF. CLI, HTTP service and a container.",
+  "author": {
+    "name": "Georg Malahov",
+    "email": "georg@malahov.io"
+  },
+  "repository": "https://github.com/georg-malahov/claude-skills",
+  "license": "MIT",
+  "keywords": [
+    "scan",
+    "document",
+    "a4",
+    "pdf",
+    "photo",
+    "imagemagick",
+    "deskew",
+    "flat-field"
+  ]
+}

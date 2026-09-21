@@ -1,20 +1,20 @@
 ---
-name: scan
+name: a4norm
 description: >
   Turn a photo of a paper document into a clean A4 PDF that looks scanned on a
   flatbed: even white paper, neutral ink, no desk or shadow around the sheet,
   exact A4 page, small file. Works on JPG/PNG/HEIC and on PDFs that are really
   just a photo. Triggers on: "make a scan", "scan this document", "photo to
   PDF", "clean up this scan", "normalize to A4", "fit to A4", "сделай скан",
-  "приведи к А4", "почисти скан", "/scan".
-argument-hint: "FILE [FILE ...] [--gray] [--fit auto|edges|content|frame] [--dpi N]"
+  "приведи к А4", "почисти скан", "/a4norm", "/scan".
+argument-hint: "FILE [FILE ...] [-o out.pdf] [--gray] [--format pdf|jpg]"
 allowed-tools:
   - Bash
   - Read
   - AskUserQuestion
 ---
 
-# Scan — photo of a document → scanner-grade A4 PDF
+# a4norm — photo of a document → scanner-grade A4 PDF
 
 One script does the whole job: `scripts/a4norm`. **Run it first, look at the
 result, tune only if something is actually wrong.** Do not rebuild the pipeline
@@ -24,8 +24,8 @@ by hand — every parameter it uses is already exposed as a flag.
 
 ```bash
 A4NORM=""
-for c in "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/skills/scan/scripts/a4norm" \
-         "$HOME/.claude/skills/scan/scripts/a4norm" \
+for c in "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/skills/a4norm/scripts/a4norm" \
+         "$HOME/.claude/skills/a4norm/scripts/a4norm" \
          "$(command -v a4norm 2>/dev/null)"; do
   [ -x "$c" ] && A4NORM="$c" && break
 done
@@ -39,8 +39,13 @@ Linux from needing it. On macOS: `brew install imagemagick poppler`. There is a
 104 MB container in `docker/` whose output is byte-identical; use it where only
 ImageMagick 6 is available (Debian 12, Ubuntu 24.04).
 
-Expect ~26–31 s for a 12 MP phone photo that needs rectifying, ~11–17 s for a
-smaller one that does not.
+Expect ~26–31 s per page for a 12 MP phone photo that needs rectifying, ~11–17 s
+for a smaller one that does not — and multiply by the number of photos.
+
+The tool also lives on its own at **github.com/georg-malahov/a4norm** and as a
+public image, `ghcr.io/georg-malahov/a4norm`. The copy here is vendored: if you
+change one, copy it to the other — they have silently diverged twice, and a
+stale copy fails in ways that look like a bug in the pipeline.
 
 ## Default flow
 
@@ -59,14 +64,19 @@ a per-page report. Then:
 
 Useful variants:
 
-- `-o "<name>.pdf"` — meaningful filename (single input only). Name the file
-  after what the document *is*; ask the user if the subject is unclear.
+- **Several photos of one document combine into ONE multi-page PDF** — page
+  order is argument order. This is the normal case, not the exception: a
+  contract is rarely one page. `--separate` gives one document per input
+  instead.
+- `-o "<name>.pdf"` — with several inputs this is the combined document. Name
+  the file after what the document *is*; ask the user if the subject is unclear.
+- `--format jpg` — images instead of a PDF (numbered when there are several
+  pages). PDF is the default and usually what is wanted.
 - `--gray` — grayscale output, ~25% smaller. Colour is the default and keeps a
   blue signature or a red stamp coloured while neutralizing the rest.
 - `--dry-run` — analyze and print the report without writing anything. Good for
   explaining what will happen, or for debugging a bad result.
-- Several inputs at once: `"$A4NORM" a.jpg b.heic c.pdf` → one PDF per input.
-  A multi-page PDF in, a multi-page A4 PDF out.
+- A multi-page PDF in, a multi-page A4 PDF out.
 
 ## What the script does, in order
 
@@ -148,6 +158,21 @@ with what scale, so a wrong choice is visible without opening the file.
 | file too big | `--dpi 200`, `--quality 80`, or `--gray` |
 
 `--dry-run` after a change shows the new decisions without writing a file.
+
+## As a service
+
+The same image runs an HTTP front end for anything that is not a shell —
+`scripts/a4norm-serve`, stdlib only:
+
+```bash
+a4norm-serve --port 8080 --max-concurrency 1      # or: docker run … a4norm serve
+curl -X POST http://localhost:8080/scan -F p1=@page1.HEIC -F p2=@page2.HEIC -o doc.pdf
+```
+
+`GET /health`, `POST /scan` (multipart, any field names, several parts → one
+multi-page PDF; `?format=jpg` for a single image). Any a4norm flag passes
+through as a query parameter. Concurrency is capped because a page is tens of
+seconds of CPU.
 
 ## Verify by looking
 
