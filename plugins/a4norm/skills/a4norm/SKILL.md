@@ -181,8 +181,8 @@ with what scale, so a wrong choice is visible without opening the file.
 | a form's shaded panel got erased, or the page lost a whole column at one edge | it was judged desk — `--band-dark 75`, or `--band-structure 3` |
 | a shaded panel survived but its outermost few mm went white | `--edge-keep 0.5` |
 | a binding or dark desk band stayed after a rectify | it was judged document — `--band-dark 45`, or `--band-structure 10` |
-| a spiral binding survived as dark marks in the margin | a dark band needs `--band-dark-structure` (15%) of print, not `--band-structure` (6%), to count as document — raise it to 40, or raise `--band-bed` to 70 |
-| a header or a page number sitting on a dark band got cut | the same bar, the other way — `--band-dark-structure 5`, or `--band-bed 20` |
+| a spiral binding survived as dark marks in the margin | its rings were not regular enough to be recognised as a binding (the test wants ≥6 equal blobs at an equal pitch over 25–75% of the side) — `--band-dark 45` judges the band on darkness alone |
+| a regular row of printed marks at one edge got cut as a binding | `--band-dark 75` to keep the band, or `--edge-keep 8` to keep most of it |
 | part of the page was repainted as if it were desk | `--no-edge-clean` |
 | file too big | `--dpi 200`, `--quality 80`, or `--gray` |
 
