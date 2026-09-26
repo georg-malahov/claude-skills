@@ -108,6 +108,11 @@ Useful variants:
    spiral binding, so it is flooded from the border and repainted in the page's
    own paper tone, and a thick band of it (a binding) is cropped away. Sheet
    content cannot reach the border, so ink is untouchable by construction.
+   **Edges correct brightness**: a side of the bright quad that lies on no
+   edge moves in onto a nearby edge where paper steps down to something darker
+   (a hand, a pale carpet taken for paper). **A till receipt** (2.5–6:1, its
+   outline clear on every side) is found by its edges whatever its colour, so
+   a blue-grey receipt on marble works; the report says "a receipt".
    **An open booklet (a passport spread) is looked for first** (`--spread`,
    auto): two facing pages — two paper regions of similar size, or one region
    whose long edges both bend or step at the fold — each page's edges fitted
