@@ -165,13 +165,21 @@ Useful variants:
    was accepted: a snapshot of a whiteboard or a lit screen gets rectified and
    scanned however small its paper-like area is, and `--photo on` is the way
    out.
-4. **Orient** — EXIF only. `--rotate auto` turns NOTHING: a wide result is laid
-   on a landscape A4 instead, because the page turning costs nothing and the
-   picture turning makes the text unreadable. A square notebook page shot in a
-   wide frame is wide because of the FRAME, not because the sheet is sideways.
-   `--rotate 90/180/270` still turns the picture, and the page follows it;
-   `--landscape` forces a landscape page; sides within `--rotate-tol` count as
-   square and leave the page portrait.
+4. **Orient** — EXIF, then the text itself. `--rotate auto` turns a page only
+   when its print says so. Lines of Latin print carry more ink above their
+   lower-case core than below, and the lines vote: a page shot upside down or
+   on its side is turned upright ("rotated 180°: 22 of 31 lines of text read
+   upright"). It is cautious and turns nothing when:
+   - the lines do not run clearly one way;
+   - fewer than 70% of the votes agree;
+   - the page has a face photo (the photo decides for IDs; a card's back is
+     turned by its machine-readable zone).
+   Handwriting, all capitals and Cyrillic mostly stay as shot. Otherwise a
+   wide result is laid on a landscape A4 rather than turned: a square notebook
+   page shot in a wide frame is wide because of the FRAME. `--rotate
+   90/180/270` turns the picture, and the page follows it; `--rotate 0` turns
+   nothing; `--landscape` forces a landscape page; sides within `--rotate-tol`
+   count as square and leave the page portrait.
 5. **Trim the photographic border** — skipped after a rectify, which already
    ended exactly at the sheet. Finds the sheet edge on each side by a hard
    brightness step whose outer strip does not look like the page, then cuts a
@@ -245,7 +253,8 @@ with what scale, so a wrong choice is visible without opening the file.
 | text looks washed out | `--white-clip 4`; if strokes look eaten, `--paper-thr 94` |
 | a photo or a dark graphic on the page got bleached | `--close 12 --bg-scale 3` (gentler background estimate), or `--no-flatten-paper` |
 | a wide page landed on a landscape sheet and portrait was wanted | `--rotate 90` — it turns the picture, and the page follows it |
-| the page came out sideways (the sheet really was photographed sideways) | `--rotate 90` / `180` / `270` |
+| the page came out sideways or upside down (handwriting, Cyrillic, all capitals: the text did not decide) | `--rotate 90` / `180` / `270` |
+| the page was turned and should not have been | `--rotate 0` |
 | a handwritten page came out tilted, or the run tilted it | `--no-deskew` — the estimator reads text baselines, and handwriting has none worth trusting |
 | the page was shot at an angle and came out as a trapezoid | the quad was refused — the report says why. `--rectify on` fails loudly instead of carrying on, which is the quickest way to see the reason |
 | rectification fired on something that is not a sheet | `--rectify off` |
