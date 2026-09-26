@@ -16,36 +16,47 @@ allowed-tools:
 
 # a4norm — photo of a document → scanner-grade A4 PDF
 
-One script does the whole job: `scripts/a4norm`. **Run it first, look at the
-result, tune only if something is actually wrong.** Do not rebuild the pipeline
-by hand — every parameter it uses is already exposed as a flag.
+One program does the whole job: `scripts/a4norm`, a native binary (the Rust
+port of the original Python script). **Run it first, look at the result, tune
+only if something is actually wrong.** Do not rebuild the pipeline by hand —
+every parameter it uses is already exposed as a flag.
 
-## Resolve the script
+## Resolve the binary
 
 ```bash
 A4NORM=""
 for c in "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/skills/a4norm/scripts/a4norm" \
          "$HOME/.claude/skills/a4norm/scripts/a4norm" \
          "$(command -v a4norm 2>/dev/null)"; do
-  [ -x "$c" ] && A4NORM="$c" && break
+  [ -x "$c" ] && "$c" --help >/dev/null 2>&1 && A4NORM="$c" && break
 done
 [ -n "$A4NORM" ] || { echo "a4norm not found"; exit 1; }
 ```
 
-Requires `magick` (ImageMagick 7) and poppler (`pdfinfo`, `pdfimages`,
-`pdftoppm`); the script itself is stdlib-only Python. **No ghostscript** — the
-output PDF is written by the script, not by ImageMagick, which is what keeps
-Linux from needing it. On macOS: `brew install imagemagick poppler`. There is a
-104 MB container in `docker/` whose output is byte-identical; use it where only
-ImageMagick 6 is available (Debian 12, Ubuntu 24.04).
+`scripts/a4norm` starts the build for this machine from `scripts/bin/`:
+macOS on Apple silicon or Intel, Linux on x86_64 or arm64 (static, any
+distribution). Each is about 2.5 MB and needs nothing else for JPEG, PNG and
+WebP: it decodes, rectifies, tones and writes the PDF itself — no ImageMagick,
+no Python, no ghostscript. All four give the same bytes. Two inputs still call
+out to a tool:
+- **HEIC** goes through `magick` or `heif-convert`, whichever is installed;
+- **PDF** input goes through poppler (`pdfinfo`, `pdfimages`, `pdftoppm`).
+On macOS: `brew install imagemagick poppler` covers both.
 
-Expect ~26–31 s per page for a 12 MP phone photo that needs rectifying, ~11–17 s
-for a smaller one that does not — and multiply by the number of photos.
+Anywhere else, build it from the repository
+(`cargo install --git https://github.com/georg-malahov/a4norm a4norm-rs --features par`,
+which puts `a4norm` on the PATH), or run the public image, whose output is the
+same: `docker run --rm -v "$PWD:/work" ghcr.io/georg-malahov/a4norm FILE`.
 
-The tool also lives on its own at **github.com/georg-malahov/a4norm** and as a
-public image, `ghcr.io/georg-malahov/a4norm`. The copy here is vendored: if you
-change one, copy it to the other — they have silently diverged twice, and a
-stale copy fails in ways that look like a bug in the pipeline.
+Expect well under a second per page on an Apple M-series Mac, a couple of
+seconds for a 50 MP photo — the Python script took 11–31 s.
+
+The tool lives on its own at **github.com/georg-malahov/a4norm**; the builds
+here are copies of its main — the Linux ones out of the public image, the macOS
+ones built from `a4norm-rs/` with `cargo build --release --locked --features par`
+(plus `--target x86_64-apple-darwin` for Intel). Replace all four and
+`a4norm-serve` together: a stale copy fails in ways that look like a bug in the
+pipeline.
 
 ## Default flow
 
@@ -78,7 +89,7 @@ Useful variants:
   explaining what will happen, or for debugging a bad result.
 - A multi-page PDF in, a multi-page A4 PDF out.
 
-## What the script does, in order
+## What it does, in order
 
 1. **Rasterize.** For a PDF it extracts the embedded image rather than rendering
    it — rendering applies the ICC profile and flattens the tonal range.
@@ -91,11 +102,46 @@ Useful variants:
    between 45° and 135°, opposite sides within 1.8×. Anything short of that is
    refused with a reason in the report, and the rest of the pipeline carries on
    as before — rectifying on a wrong quad is far worse than not rectifying.
-   After a rectify the script **erases whatever leans in from outside the
+   After a rectify it **erases whatever leans in from outside the
    sheet**: non-paper that is *connected to the frame edge* is desk, shadow or a
    spiral binding, so it is flooded from the border and repainted in the page's
    own paper tone, and a thick band of it (a binding) is cropped away. Sheet
    content cannot reach the border, so ink is untouchable by construction.
+   **An open booklet (a passport spread) is looked for first** (`--spread`,
+   auto): two facing pages — two paper regions of similar size, or one region
+   whose long edges both bend or step at the fold — each page's edges fitted
+   as support lines (a thumb's curved outline cannot win), the fold where the
+   pages' edges meet, each page warped to one common size and joined. A finger
+   at the outer edge is repainted in its page's tone (never near the spine,
+   where the red perforation strip is skin-coloured). When the strict paper
+   mask finds no spread, a looser one (chroma ≤100, for pink pages) and Otsu's
+   brightness split (a booklet in its own shadow) get a say. The spread is then
+   **turned upright from its own pages**: text direction by ink runs, and up
+   vs down by the face photo, which sits on the LEFT of its page (RU page 3,
+   every ICAO data page). The report says when it had nothing to decide by.
+   **ID-1 cards** (`--cards`, auto): an ID card, a driving licence, a bank
+   card is 85.60×53.98 mm, 1.586:1, and that proportion is how a card is
+   told from a sheet (1.414) or a passport page (1.42). One or two cards per
+   photo; two touching card-shaped regions are left to the spread detector,
+   and a lone card beats a spread only if it covers 70% of it. Each card is
+   rectified to its real size, turned so its face photo is on the left
+   (measured in the photo's known place and its mirror, never searched), a
+   finger at its edge repainted, toned as a colour copy (nothing whitened),
+   and given rounded corners and a hairline edge. Cards are laid out front
+   above back on ONE A4, from one photo or two photos in a row;
+   `--card-size fit` fills the page width. The shape decides; a face photo
+   (found in its place, or far darker than the mirror place) only decides
+   which side is on top. A card beats a spread only if the spread was one
+   region cut at a kink.
+   **Edges when brightness fails** (`--edges`, auto): Canny on brightness
+   and saturation, Hough lines, every pair-of-pairs outline scored by how
+   much of it is edge. Believed only when brightness found nothing, a scrap
+   inside the outline, or the whole frame. Card-shaped → card path; with a
+   lone fold line across the middle → spread; else a sheet (≥60% edge,
+   15–85% of the frame, 1.25–1.6). This is what finds a white page on a
+   white desk and a passport over a light floor. A spread's orientation and
+   its face photo are now looked for in the photo's known place (left third
+   of the lower page), and the photo box is grown to passport-photo height.
 3. **Or decide the frame holds no document.** No accepted quad *and* a
    paper-like area under `--photo-paper` (20%) means somebody is turning
    snapshots into a PDF, not scanning. This is decided BEFORE anything touches
@@ -124,6 +170,16 @@ Useful variants:
    ended exactly at the sheet. Finds the sheet edge on each side by a hard
    brightness step whose outer strip does not look like the page, then cuts a
    little further in to drop the edge shadow.
+5.  **An open passport is a colour copy** — like a card: light evened, tint,
+    guilloche and ornament kept, nothing whitened; the whitening steps do
+    not run on it (`--spread-scan` restores the old scan look). Fingers are
+    told from red ornament by texture (smooth skin vs patterned print).
+5a. **Keep a face photo out of the paper treatment** (sheets only) — a compact block of
+    cells darker than the paper near them, portrait-sized, ≥40% of its box.
+    It is cut out before the flat-field, toned on its own and laid back with a
+    feathered edge; otherwise the face comes out with white holes for cheeks.
+    `--no-keep-photo` turns it off. Skipped (and reported) if the page is
+    deskewed afterwards.
 6. **Flat-field.** Divides by a heavily smoothed background estimate, which is
    what turns uneven camera light into even white paper.
 7. **Deskew** — skipped after a rectify (the quad already set the
@@ -144,7 +200,17 @@ Useful variants:
     of the other side of the page, and measured on printed text it changes ink
     coverage by 0.04%.
 12. **Fit to A4** (see below) and write JPEG-in-PDF at `--dpi` (300) and
-    `--quality` (88, no chroma subsampling — text stays crisp).
+    `--quality` (88, no chroma subsampling — text stays crisp). When the photo
+    holds under 180 dpi of real detail at the size it lands, the page is
+    written at 200 dpi with 4:2:0 instead (a 1280×960 passport snapshot: 1.6 MB
+    → 577 KB, no visible difference). An explicit `--dpi` is always obeyed.
+
+13. **Clean the open paper** — small (<2.5 mm), light (nothing darker than
+    60%) marks with no print within 3 mm are erased: shadow grain in a
+    corner, dust, a pencil fleck. A full stop sits next to print and stays;
+    long thin fragments (a light ruled line) count as print. A large light
+    mark filling a page corner is a shadow and goes too, except around print
+    it covers. About 1.5–2 s a page; `--no-despeckle` turns it off.
 
 ## How the A4 scale is chosen (`--fit`, default `auto`)
 
@@ -184,14 +250,26 @@ with what scale, so a wrong choice is visible without opening the file.
 | a spiral binding survived as dark marks in the margin | its rings were not regular enough to be recognised as a binding (the test wants ≥6 equal blobs at an equal pitch over 25–75% of the side) — `--band-dark 45` judges the band on darkness alone |
 | a regular row of printed marks at one edge got cut as a binding | `--band-dark 75` to keep the band, or `--edge-keep 8` to keep most of it |
 | part of the page was repainted as if it were desk | `--no-edge-clean` |
+| tiny light marks on open paper vanished (faint dots, a light dotted line) | `--no-despeckle` |
 | file too big | `--dpi 200`, `--quality 80`, or `--gray` |
+| a passport spread came out as one page, or its facing page was dropped | `--spread on` fails loudly with each paper mask's reason |
+| something that is not a booklet was split and joined as a spread | `--spread off` |
+| a spread came out upside down | no face photo to tell up from down — `--rotate 180` |
+| an ID card came out as a scanned page | not found as a card (no `card:` line) — too like its background |
+| a card's back landed on top | no face found on either side; input order kept — shoot the front first |
+| a card's front and back landed on two pages | the two photos were not in a row, or one was not found as a card |
+| cards too small to read | `--card-size fit` |
+| something that is not a card was laid out as one | `--cards off` |
+| the page was cropped to a wrong rectangle "found by its edges" | `--edges off` |
+| a face photo came out bleached | it was not found — no `face photo at` line in the report |
+| a dark picture on a page kept a grey box around it | taken for a face photo — `--no-keep-photo` |
 
 `--dry-run` after a change shows the new decisions without writing a file.
 
 ## As a service
 
 The same image runs an HTTP front end for anything that is not a shell —
-`scripts/a4norm-serve`, stdlib only:
+`scripts/a4norm-serve`, stdlib Python, which runs the binary once per request:
 
 ```bash
 a4norm-serve --port 8080 --max-concurrency 1      # or: docker run … a4norm serve
@@ -200,8 +278,8 @@ curl -X POST http://localhost:8080/scan -F p1=@page1.HEIC -F p2=@page2.HEIC -o d
 
 `GET /health`, `POST /scan` (multipart, any field names, several parts → one
 multi-page PDF; `?format=jpg` for a single image). Any a4norm flag passes
-through as a query parameter. Concurrency is capped because a page is tens of
-seconds of CPU.
+through as a query parameter. Concurrency is capped because each page uses
+every core it is given.
 
 ## Verify by looking
 
@@ -227,11 +305,29 @@ signatures and stamps are intact.
   low-chroma against a darker or coloured surface works; white paper on a white
   desk does not separate, the quad is refused, and the keystone stays. Reshoot
   square-on or on a darker surface.
+- **A card must stand out from what it lies on too** — on a white surface,
+  light wood or over a bright background it is scanned as a document. A
+  card's back has no face photo, so it keeps its orientation as shot.
+- **A spread or card must stand out from its background by brightness, colour
+  or a clear straight edge.** Edge finding rescued white-on-white passports;
+  a card on white paint, over bright railings or on light wood, and a
+  booklet whose hand hides a corner, are still missed.
 - **Pages are processed independently**, so the scale can differ by a few tenths
   of a percent between pages of one document.
 - **The haze filter can eat a genuinely smooth light-grey fill.** `--no-haze`.
 - **The `content` fit assumes ordinary margins.** A form printed edge to edge
   needs `--fit frame` or explicit `--margins`.
+
+## Local test corpus
+
+Real documents never go into the repository. In the repo (`~/projects/a4norm`),
+`tests/run.sh --open` runs the public examples (`tests/regression.py`: structure
++ golden snapshots, also in CI) and the git-ignored local corpus
+(`tests/corpus/` + `cases.json`, via `tests/corpus.py`), then builds and opens
+`tests/out/report.html`: every input beside its result and golden, verdict and
+why. Add new hard photos to `tests/corpus/`, named for what makes them hard; a
+photo not handled yet is marked `known_fail`. Never put a user's own documents
+there.
 
 ## Handing back
 

@@ -9,12 +9,12 @@ page, and a file small enough to email.
 /a4norm page1.HEIC page2.HEIC page3.HEIC   # one multi-page PDF
 ```
 
-Skill: `a4norm` · Scripts: `skills/a4norm/scripts/a4norm` (CLI) and
+Skill: `a4norm` · Programs: `skills/a4norm/scripts/a4norm` (CLI) and
 `a4norm-serve` (HTTP), both standalone.
 
 The tool also lives on its own at [github.com/georg-malahov/a4norm](https://github.com/georg-malahov/a4norm)
-and as a public image `ghcr.io/georg-malahov/a4norm`. The copies here are
-vendored — change one, copy it to the other.
+and as a public image `ghcr.io/georg-malahov/a4norm`. The builds here are
+copies of its main — replace them together when it moves.
 
 **See it working without installing anything:** [@a4norm_bot](https://t.me/a4norm_bot)
 on Telegram runs that same image behind a chat window — send a photo, or a whole
@@ -29,28 +29,33 @@ album, and the A4 PDF comes back.
 
 ## Dependencies
 
-Three things, and nothing else — no Python packages at all, the script is
-stdlib-only:
+None for JPEG, PNG and WebP. `scripts/a4norm` starts a native build of the
+Rust a4norm for this machine, from `scripts/bin/`:
 
-| | why | note |
-|---|---|---|
-| Python 3.8+ | the script | stdlib only: argparse, collections, math, os, re, shutil, subprocess, sys, tempfile |
-| ImageMagick 7 (`magick`) | every pixel operation | HEIC input needs the libheif delegate |
-| poppler (`pdfinfo`, `pdfimages`, `pdftoppm`) | PDF input | — |
+| platform | build |
+|---|---|
+| macOS, Apple silicon | `a4norm-darwin-arm64` |
+| macOS, Intel | `a4norm-darwin-x86_64` |
+| Linux x86_64, any distribution | `a4norm-linux-x86_64` (static) |
+| Linux arm64, any distribution | `a4norm-linux-aarch64` (static) |
 
-**No ghostscript.** ImageMagick never reads a PDF here (poppler does) and the
-output PDF is written by the script itself — a JPEG per page plus a few hundred
-bytes of boilerplate — so the ~90 MB ghostscript dependency that ImageMagick
-would otherwise need to *write* a PDF on Linux is not required.
+Each is about 2.5 MB and does everything itself — decoding, every pixel
+operation, the PDF. No ImageMagick, no Python, no ghostscript. All four give the
+same bytes for the same photo.
+
+Two inputs still call out to a tool:
+
+| input | tool |
+|---|---|
+| HEIC | `magick` (with libheif) or `heif-convert` |
+| PDF | poppler (`pdfinfo`, `pdfimages`, `pdftoppm`) |
 
 ```
-brew install imagemagick poppler                      # macOS
-apk add python3 imagemagick imagemagick-heic imagemagick-jpeg poppler-utils   # Alpine
-apt install python3 imagemagick poppler-utils         # Debian 13+ (ImageMagick 7)
+brew install imagemagick poppler      # macOS, for HEIC and PDF input
 ```
 
-Debian 12 and Ubuntu 24.04 still ship ImageMagick 6, which has no `magick`
-binary — use the container there.
+On any other platform: `cargo install --git https://github.com/georg-malahov/a4norm a4norm-rs --features par`,
+or the container below.
 
 ## Docker
 
@@ -65,29 +70,26 @@ docker run --rm -v "$PWD:/work" ghcr.io/georg-malahov/a4norm:latest \
 docker run --rm -p 8080:8080 ghcr.io/georg-malahov/a4norm:latest serve
 ```
 
-104 MB, `linux/amd64` and `linux/arm64`, no ghostscript. Output is byte-identical
-to a local run — verified by SHA-256 across macOS/arm64, Linux/arm64 and
-Linux/amd64 on a 12 MP HEIC. That parity is not free: ImageMagick 7.1.1 and
-7.1.2 swap the meaning of the `Divide_Dst` / `Divide_Src` compose aliases, so the
-flat-field silently inverts on the wrong build and the page comes out blank and
-speckled. The script probes the operators on two known pixels at startup instead
-of trusting the names.
+`linux/amd64` and `linux/arm64`, no ghostscript. The image runs the same
+binary as the Linux builds here, so its output is byte-identical to a local
+run.
 
 ## Speed
 
-Per page, on an M-series Mac (the container is within ~15% of it):
+Per page at 200 dpi, on an M4 Max:
 
-| input | path | time |
-|---|---|---|
-| 12 MP HEIC photo of a page on a desk | rectify | ~26–31 s |
-| 5.5 MP photo embedded in a PDF | no rectify | ~17 s |
-| 4.7 MP JPEG | no rectify | ~11 s |
+| input | time |
+|---|---|
+| invoice photo, rectified | 0.3 s |
+| notebook photo | 0.3–0.5 s |
+| 12 MP phone photo | 0.5 s |
+| ID card, front and back | 0.2 s |
 
-Roughly half of it is ImageMagick on full-resolution pixels (the flat-field
-alone is ~6 s on 12 MP); the two pure-Python passes — quad detection and the
-border flood — run on 400 and 520 px grids and cost under 3 s together.
+The Python and ImageMagick version this replaces took 11–31 s a page. The same
+code also runs in a browser as WebAssembly: [malahov.io](https://malahov.io)
+scans on the device, with nothing uploaded.
 
-## Use the script directly
+## Use it directly
 
 ```bash
 a4norm photo.jpg                       # -> photo-A4.pdf next to the input
@@ -115,7 +117,7 @@ default, JPEG-compressed without chroma subsampling.
 | clean paper to pure white | with a 1 px guard ring around every glyph |
 | fit to A4 | from the real sheet edges when visible, otherwise from the ink block and standard margins |
 
-Every parameter is a flag; `--dry-run` prints what the script decided and why.
+Every parameter is a flag; `--dry-run` prints what it decided and why.
 See [skills/a4norm/SKILL.md](skills/a4norm/SKILL.md) for the symptom → flag table.
 
 ## Limits
