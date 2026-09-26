@@ -41,7 +41,9 @@ Rust a4norm for this machine, from `scripts/bin/`:
 
 Each is about 2.5 MB and does everything itself — decoding, every pixel
 operation, the PDF. No ImageMagick, no Python, no ghostscript. All four give the
-same bytes for the same photo.
+same page for the same photo: the two ARM builds match byte for byte, as do the
+two x86 ones, and ARM and x86 differ at most by a level here and there, which
+no eye or printer sees.
 
 Two inputs still call out to a tool:
 
@@ -71,7 +73,7 @@ docker run --rm -p 8080:8080 ghcr.io/georg-malahov/a4norm:latest serve
 ```
 
 `linux/amd64` and `linux/arm64`, no ghostscript. The image runs the same
-binary as the Linux builds here, so its output is byte-identical to a local
+binary as the Linux builds here, so its output is the same page as a local
 run.
 
 ## Speed

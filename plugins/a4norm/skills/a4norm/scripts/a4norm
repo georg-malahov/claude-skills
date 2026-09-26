@@ -1,7 +1,7 @@
 #!/bin/sh
 # a4norm: runs the build of the a4norm binary for this machine, from bin/.
 # They are built from github.com/georg-malahov/a4norm (a4norm-rs/) and give
-# the same bytes on every platform.
+# the same page on every platform.
 self=$0
 while [ -L "$self" ]; do
   t=$(readlink "$self")

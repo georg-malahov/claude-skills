@@ -37,7 +37,8 @@ done
 macOS on Apple silicon or Intel, Linux on x86_64 or arm64 (static, any
 distribution). Each is about 2.5 MB and needs nothing else for JPEG, PNG and
 WebP: it decodes, rectifies, tones and writes the PDF itself — no ImageMagick,
-no Python, no ghostscript. All four give the same bytes. Two inputs still call
+no Python, no ghostscript. All four give the same page (ARM and x86 may differ
+by a level in a few pixels). Two inputs still call
 out to a tool:
 - **HEIC** goes through `magick` or `heif-convert`, whichever is installed;
 - **PDF** input goes through poppler (`pdfinfo`, `pdfimages`, `pdftoppm`).
