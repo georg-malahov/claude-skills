@@ -108,6 +108,17 @@ Useful variants:
    spiral binding, so it is flooded from the border and repainted in the page's
    own paper tone, and a thick band of it (a binding) is cropped away. Sheet
    content cannot reach the border, so ink is untouchable by construction.
+   **The outline comes first**: four straight lines, each a boundary over
+   most of its length (the two sides differ in brightness, or in grain with
+   the smoother side inside), after a median has wiped out the grain of
+   stone, carpet or wood. No colour test of paper or desk, so a pale passport
+   on pale granite is found as it lies; all four sides count together, so a
+   windowsill's edge makes no outline, and a page beats the photo on it.
+   Each side then settles outwards onto the strongest step nearby. A cut
+   across the middle third on an edge over 90% of the width is a fold (a
+   spread); a 2.5–6:1 outline is a receipt; a card-shaped one a card. When
+   no outline holds, everything below decides as before (report lines say
+   "found by its outline" when it did).
    **Edges correct brightness**: a side of the bright quad that lies on no
    edge moves in onto a nearby edge where paper steps down to something darker
    (a hand, a pale carpet taken for paper). **A till receipt** (2.5–6:1, its
@@ -121,10 +132,8 @@ Useful variants:
    at the outer edge is repainted in its page's tone (never near the spine,
    where the red perforation strip is skin-coloured). When the strict paper
    mask finds no spread, a looser one (chroma ≤100, for pink pages) and Otsu's
-   brightness split (a booklet in its own shadow) get a say. The spread is then
-   **turned upright from its own pages**: text direction by ink runs, and up
-   vs down by the face photo, which sits on the LEFT of its page (RU page 3,
-   every ICAO data page). The report says when it had nothing to decide by.
+   brightness split (a booklet in its own shadow) get a say. The spread stays
+   as it was shot.
    **ID-1 cards** (`--cards`, auto): an ID card, a driving licence, a bank
    card is 85.60×53.98 mm, 1.586:1, and that proportion is how a card is
    told from a sheet (1.414) or a passport page (1.42). One or two cards per
@@ -145,9 +154,9 @@ Useful variants:
    inside the outline, or the whole frame. Card-shaped → card path; with a
    lone fold line across the middle → spread; else a sheet (≥60% edge,
    15–85% of the frame, 1.25–1.6). This is what finds a white page on a
-   white desk and a passport over a light floor. A spread's orientation and
-   its face photo are now looked for in the photo's known place (left third
-   of the lower page), and the photo box is grown to passport-photo height.
+   white desk and a passport over a light floor. A spread's face photo is
+   looked for in the photo's known place (left third of the lower page), and
+   the photo box is grown to passport-photo height.
 3. **Or decide the frame holds no document.** No accepted quad *and* a
    paper-like area under `--photo-paper` (20%) means somebody is turning
    snapshots into a PDF, not scanning. This is decided BEFORE anything touches
@@ -165,21 +174,15 @@ Useful variants:
    was accepted: a snapshot of a whiteboard or a lit screen gets rectified and
    scanned however small its paper-like area is, and `--photo on` is the way
    out.
-4. **Orient** — EXIF, then the text itself. `--rotate auto` turns a page only
-   when its print says so. Lines of Latin print carry more ink above their
-   lower-case core than below, and the lines vote: a page shot upside down or
-   on its side is turned upright ("rotated 180°: 22 of 31 lines of text read
-   upright"). It is cautious and turns nothing when:
-   - the lines do not run clearly one way;
-   - fewer than 70% of the votes agree;
-   - the page has a face photo (the photo decides for IDs; a card's back is
-     turned by its machine-readable zone).
-   Handwriting, all capitals and Cyrillic mostly stay as shot. Otherwise a
-   wide result is laid on a landscape A4 rather than turned: a square notebook
-   page shot in a wide frame is wide because of the FRAME. `--rotate
-   90/180/270` turns the picture, and the page follows it; `--rotate 0` turns
-   nothing; `--landscape` forces a landscape page; sides within `--rotate-tol`
-   count as square and leave the page portrait.
+4. **Orient** — EXIF only. `--rotate auto` turns NOTHING by guess: the
+   page stays as shot, whoever shot it knows which way up it is (guessing from
+   the text and the face photo turned passport pages wrong). A wide result is
+   laid on a landscape A4 rather than turned: a square notebook page shot in a
+   wide frame is wide because of the FRAME. `--rotate 90/180/270` turns the
+   picture, and the page follows it; `--landscape` forces a landscape page;
+   sides within `--rotate-tol` count as square and leave the page portrait. A
+   card is still laid out by its face photo, a card's back by its
+   machine-readable zone.
 5. **Trim the photographic border** — skipped after a rectify, which already
    ended exactly at the sheet. Finds the sheet edge on each side by a hard
    brightness step whose outer strip does not look like the page, then cuts a
@@ -253,8 +256,7 @@ with what scale, so a wrong choice is visible without opening the file.
 | text looks washed out | `--white-clip 4`; if strokes look eaten, `--paper-thr 94` |
 | a photo or a dark graphic on the page got bleached | `--close 12 --bg-scale 3` (gentler background estimate), or `--no-flatten-paper` |
 | a wide page landed on a landscape sheet and portrait was wanted | `--rotate 90` — it turns the picture, and the page follows it |
-| the page came out sideways or upside down (handwriting, Cyrillic, all capitals: the text did not decide) | `--rotate 90` / `180` / `270` |
-| the page was turned and should not have been | `--rotate 0` |
+| the page came out sideways or upside down (it stays as shot) | `--rotate 90` / `180` / `270` |
 | a handwritten page came out tilted, or the run tilted it | `--no-deskew` — the estimator reads text baselines, and handwriting has none worth trusting |
 | the page was shot at an angle and came out as a trapezoid | the quad was refused — the report says why. `--rectify on` fails loudly instead of carrying on, which is the quickest way to see the reason |
 | rectification fired on something that is not a sheet | `--rectify off` |
@@ -269,7 +271,7 @@ with what scale, so a wrong choice is visible without opening the file.
 | file too big | `--dpi 200`, `--quality 80`, or `--gray` |
 | a passport spread came out as one page, or its facing page was dropped | `--spread on` fails loudly with each paper mask's reason |
 | something that is not a booklet was split and joined as a spread | `--spread off` |
-| a spread came out upside down | no face photo to tell up from down — `--rotate 180` |
+| a spread came out sideways or upside down | it stays as shot — `--rotate 90` / `180` / `270` |
 | an ID card came out as a scanned page | not found as a card (no `card:` line) — too like its background |
 | a card's back landed on top | no face found on either side; input order kept — shoot the front first |
 | a card's front and back landed on two pages | the two photos were not in a row, or one was not found as a card |
