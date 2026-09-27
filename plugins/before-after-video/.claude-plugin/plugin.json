@@ -1,0 +1,12 @@
+{
+  "name": "before-after-video",
+  "version": "0.1.0",
+  "description": "Record a before/after comparison video of a web UI change as proof for a PR: main and the branch side by side in the same scripted Playwright scenario, with labels, captions, visible taps and numbers measured in the run (long tasks, frame stalls, interaction latency, shutter lag), composed into a phone-friendly MP4 plus a before → after table. Fake camera from any image included.",
+  "author": {
+    "name": "Georg Malahov",
+    "email": "georg@malahov.io"
+  },
+  "repository": "https://github.com/georg-malahov/claude-skills",
+  "license": "MIT",
+  "keywords": ["video", "before-after", "comparison", "playwright", "performance", "ffmpeg", "pull-request", "fake-camera"]
+}

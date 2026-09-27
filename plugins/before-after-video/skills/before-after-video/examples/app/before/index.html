@@ -1,0 +1,15 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Filter</title>
+<style>body{font:16px system-ui;margin:0;padding:64px 16px 16px}input{width:100%;font:18px system-ui;padding:10px;box-sizing:border-box}
+#bar{height:6px;background:#eee;margin:12px 0;position:relative}#bar i{position:absolute;top:0;width:40px;height:6px;background:#2563eb}
+li{padding:6px 0;border-bottom:1px solid #eee}</style>
+<input id=q placeholder="Filter fruit…"><div id=bar><i></i></div><div id=n></div><ul id=list></ul>
+<script>
+const WORDS="apple banana cherry grape lemon mango melon orange peach pear plum kiwi lime fig date".split(" ");
+const ITEMS=Array.from({length:4000},(_,i)=>WORDS[i%WORDS.length]+" "+i);
+// A JS-driven bar: it stutters whenever the main thread is blocked.
+const bar=document.querySelector("#bar i");(function tick(t){bar.style.left=(Math.sin(t/400)*0.5+0.5)*(bar.parentNode.clientWidth-40)+"px";requestAnimationFrame(tick)})(0);
+function score(q){let s=0;for(let i=0;i<4e7;i++)s+=Math.sqrt(i%q.length+1);return s} // the "expensive ranking"
+function render(hits){n.textContent=hits.length+" matches";list.innerHTML=hits.slice(0,30).map(h=>"<li>"+h+"</li>").join("")}
+render(ITEMS);
+q.addEventListener("input",()=>{const v=q.value;score(v||"x");score(v||"x");render(ITEMS.filter(s=>s.includes(v)))});
+</script>

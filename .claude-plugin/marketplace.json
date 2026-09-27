@@ -70,6 +70,26 @@
         "demo",
         "fix"
       ]
+    },
+    {
+      "name": "before-after-video",
+      "description": "Before/after comparison videos of a web UI change as proof for a PR: main and the branch side by side in the same scripted Playwright scenario, labelled, with captions, visible taps and numbers measured in the run, composed into a phone-friendly MP4 plus a before \u2192 after table. Includes a fake camera from any image for camera flows.",
+      "source": "./plugins/before-after-video",
+      "version": "0.1.0",
+      "author": {
+        "name": "Georg Malahov",
+        "email": "georg@malahov.io"
+      },
+      "category": "productivity",
+      "keywords": [
+        "video",
+        "before-after",
+        "comparison",
+        "playwright",
+        "performance",
+        "ffmpeg",
+        "pull-request"
+      ]
     }
   ]
 }
