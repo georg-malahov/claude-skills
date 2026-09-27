@@ -17,6 +17,7 @@ Add the marketplace and install the plugin you need:
 |--------|-------------|
 | [process-video](plugins/process-video/) | Process and share videos: optimize, transcribe, subtitles, and share via tunnel with `/video` command |
 | [a4norm](plugins/a4norm/) | `/a4norm` — photos of paper documents become one scanner-grade A4 PDF: perspective corrected, white paper, neutral ink, no desk or binding |
+| [before-after-video](plugins/before-after-video/) | Before/after comparison video of a web UI change for a PR: main vs the branch side by side in one scripted scenario, with captions, visible taps and measured numbers, plus a before → after table |
 | [ralph](plugins/ralph/) | `/ralph` — native agentic loop: brainstorm → plan → execute → review → e2e → pr → demo, plus ad-hoc `/ralph fix` (test-first bug squashing) |
 
 ## Adding New Plugins

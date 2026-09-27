@@ -1,0 +1,11 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Camera</title>
+<style>body{margin:0;background:#000}video{touch-action:none;width:100vw;height:80vh;object-fit:cover;display:block}
+#shutter{position:fixed;left:50%;bottom:40px;transform:translateX(-50%);width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:#ddd}
+#shot{position:fixed;right:10px;top:70px;width:110px;border:3px solid #fff;display:none}</style>
+<video autoplay playsinline muted></video><button id=shutter aria-label=Shutter></button><img id=shot>
+<script>
+const v=document.querySelector("video");
+navigator.mediaDevices.getUserMedia({video:true}).then(s=>{v.srcObject=s});
+shutter.addEventListener("click",()=>setTimeout(()=>{const c=document.createElement("canvas");c.width=v.videoWidth;c.height=v.videoHeight;
+  c.getContext("2d").drawImage(v,0,0);c.toBlob(b=>{window.lastPhoto=b;window.shots=(window.shots||0)+1;shot.src=URL.createObjectURL(b);shot.style.display="block"},"image/jpeg")},450));
+</script>
